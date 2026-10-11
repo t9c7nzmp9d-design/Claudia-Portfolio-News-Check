@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Datenschutz – Depot-News</title>
+  <meta name="theme-color" content="#0f766e">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    body { padding-bottom: 32px; }
+    main { line-height: 1.6; }
+    main h2 { margin-top: 1.6rem; }
+    main li { margin: .3rem 0; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-text"><h1>Datenschutz</h1><p class="muted small">Depot-News · Stand: Oktober 2026</p></div>
+    <a class="btn small" href="./">Zur App</a>
+  </header>
+  <main>
+    <div class="card">
+      <p><strong>Kurzfassung:</strong> Depot-News ist ein privates, nicht-kommerzielles Projekt ohne Werbung, ohne Tracking,
+        ohne Cookies und ohne eigenen Server. Deine Depotdaten werden ausschließlich lokal auf deinem Gerät verarbeitet und gespeichert.</p>
+    </div>
+
+    <h2>1. Verantwortlich</h2>
+    <p>Betreiber dieser privaten Seite: <em>[Name und Kontakt-E-Mail hier eintragen]</em>.<br>
+      Die Seite verfolgt keine kommerziellen Ziele und stellt keine Anlageberatung dar.</p>
+
+    <h2>2. Hosting über GitHub Pages</h2>
+    <p>Die App-Dateien werden über GitHub Pages (GitHub Inc., USA) ausgeliefert. Beim Aufruf verarbeitet GitHub technisch
+      notwendige Daten wie IP-Adresse, Zeitpunkt und Browserkennung (Server-Logfiles) zur Auslieferung und Sicherheit.
+      Darauf hat der Betreiber keinen Einfluss. Details: <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub-Datenschutzerklärung</a>.
+      Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Bereitstellung der Seite).</p>
+
+    <h2>3. Deine Depotdaten bleiben auf deinem Gerät</h2>
+    <ul>
+      <li>Eingelesene Tabellen (CSV, Excel, Numbers) werden <strong>im Browser</strong> ausgewertet – die Datei wird nicht hochgeladen.</li>
+      <li>Positionen, Quellen, Einstellungen und gelesene Artikel werden im lokalen Speicher des Browsers
+        (<code>localStorage</code>/<code>IndexedDB</code>) abgelegt. Sie verlassen das Gerät nur, wenn du selbst eine Sicherung exportierst oder teilst.</li>
+      <li>Wenn du ein lokales Verzeichnis verbindest (nur in unterstützten Browsern), merkt sich der Browser die Freigabe;
+        die App liest dort Tabellen und schreibt die Sicherungsdatei <code>depot-news-sicherung.json</code>.</li>
+      <li>Über „Mehr → Alle Daten löschen“ entfernst du sämtliche lokal gespeicherten Daten.</li>
+    </ul>
+
+    <h2>4. Abruf von Nachrichten (Drittanbieter)</h2>
+    <p>Um News zu finden, sendet die App <strong>nur Suchbegriffe</strong> (z. B. „SAP“, „MSCI World“) und die Liste der
+      aktivierten Nachrichtenquellen an einen Nachrichtendienst – <strong>keine Werte, Stückzahlen, Gewichtungen oder ISINs</strong>.
+      Dabei wird technisch bedingt deine IP-Adresse an den jeweiligen Dienst übermittelt:</p>
+    <ul>
+      <li><strong>GDELT Project</strong> (Standard, <code>api.gdeltproject.org</code>, USA) – offene Nachrichtendatenbank.</li>
+      <li><strong>Google News RSS</strong> (nur wenn du es in den Einstellungen wählst) – Abruf über den von dir eingetragenen CORS-Proxy;
+        der Proxy-Betreiber (z. B. dein eigener Cloudflare Worker) sieht dann die Anfrage.</li>
+      <li><strong>RSS-Feeds</strong> von Quellen, für die du einen Feed hinterlegt hast.</li>
+    </ul>
+    <p>Die Reihenfolge der Suchbegriffe kann Rückschlüsse auf deine größten Positionen zulassen. Wenn du das vermeiden möchtest,
+      deaktiviere einzelne Positionen für den News-Abruf oder reduziere die Anzahl der abgefragten Positionen.
+      Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO – der Abruf erfolgt nur auf deine Aktion bzw. gemäß deinen Einstellungen.</p>
+
+    <h2>5. Externe Links</h2>
+    <p>Beim Öffnen eines Artikels verlässt du die App und rufst die Website des jeweiligen Mediums auf; dort gelten deren
+      Datenschutzbestimmungen. Die App übermittelt dabei keinen Referrer.</p>
+
+    <h2>6. Benachrichtigungen</h2>
+    <p>Benachrichtigungen werden lokal vom Browser erzeugt, nachdem die App neue Artikel gefunden hat. Es wird kein Push-Dienst
+      und kein Server des Betreibers verwendet. Die Erlaubnis kannst du jederzeit in den Browser- bzw. Systemeinstellungen widerrufen.</p>
+
+    <h2>7. Keine Cookies, kein Tracking</h2>
+    <p>Die App setzt keine Cookies, nutzt keine Analyse- oder Werbedienste und lädt keine externen Schriftarten oder Skripte.
+      Alle Programmbestandteile (inkl. der Excel-Bibliothek SheetJS) werden von dieser Seite selbst ausgeliefert.</p>
+
+    <h2>8. Deine Rechte</h2>
+    <p>Da der Betreiber keine personenbezogenen Daten von dir speichert, liegen alle Daten in deiner Hand. Gegenüber GitHub und den
+      Nachrichtendiensten stehen dir die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und
+      Widerspruch (Art. 15–21 DSGVO) sowie ein Beschwerderecht bei einer Aufsichtsbehörde zu.</p>
+
+    <h2>9. Haftungsausschluss</h2>
+    <p>Die angezeigten Nachrichten stammen von Dritten. Für deren Inhalt, Richtigkeit und Vollständigkeit wird keine Gewähr
+      übernommen. Die App ist kein Anlageberatungs- oder Handelsinstrument.</p>
+
+    <p><a class="btn primary" href="./">Zurück zur App</a></p>
+  </main>
+</body>
+</html>
