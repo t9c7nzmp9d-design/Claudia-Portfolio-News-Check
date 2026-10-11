@@ -66,3 +66,27 @@ test('Stellenanzeigen werden erkannt', async () => {
   assert.ok(isJobAd({ title: 'Controller', domain: 'stellenmarkt.sueddeutsche.de' }));
   assert.ok(!isJobAd({ title: 'SAP hebt Prognose an', domain: 'faz.net' }));
 });
+
+test('Lokale Suchliste: nur Positionen ab der eingestellten Gewichtung, nichts verlässt das Gerät', async () => {
+  const { fetchNews } = await import('../js/news.js');
+  const urls = [];
+  globalThis.fetch = async url => {
+    urls.push(String(url));
+    return { ok: true, status: 200, json: async () => ({ generatedAt: new Date().toISOString(), items: [
+      { t: 'SAP hebt Prognose an', u: 'https://www.handelsblatt.com/a', d: 'handelsblatt.com', s: 'Handelsblatt', l: 'de', ts: Date.now() },
+      { t: 'Kleinwert AG übernimmt Konkurrenten', u: 'https://www.handelsblatt.com/b', d: 'handelsblatt.com', s: 'Handelsblatt', l: 'de', ts: Date.now() }
+    ] }) };
+  };
+  const positions = [
+    { id: 'sap', name: 'SAP', searchTerm: 'SAP', weight: 18 },
+    { id: 'klein', name: 'Kleinwert AG', searchTerm: 'Kleinwert', weight: 1 }
+  ];
+  const sources = [{ name: 'Handelsblatt', domain: 'handelsblatt.com', lang: 'de', enabled: true }];
+  const res = await fetchNews({ positions, sources, settings: { languages: ['de'], timespanDays: 7, watchMinWeight: 2 } });
+  assert.deepEqual(res.items.map(i => i.positionIds[0]), ['sap']);
+  // Es wird nur die allgemeine Sammlung abgerufen – ohne Suchbegriffe oder Depotdaten in der Adresse
+  assert.equal(urls.length, 1);
+  assert.doesNotMatch(urls[0], /SAP|Kleinwert/);
+  const all = await fetchNews({ positions, sources, settings: { languages: ['de'], timespanDays: 7, watchMinWeight: 0 } });
+  assert.equal(all.items.length, 2);
+});

@@ -27,7 +27,7 @@ let editingId = null;
 const posById = () => new Map(state.portfolio.positions.map(p => [p.id, p]));
 const newsOn = p => p.newsEnabled !== false;
 /** Nur Positionen, für die der Nutzer News sehen möchte. */
-const newsPosById = () => new Map(state.portfolio.positions.filter(newsOn).map(p => [p.id, p]));
+const newsPosById = () => { const ids = newsTopIds(); return new Map(state.portfolio.positions.filter(p => ids.has(p.id)).map(p => [p.id, p])); };
 const save = (now) => saveState(state, now);
 
 // ---------------------------------------------------------------- Hilfen UI
@@ -92,7 +92,9 @@ function fmtPos(p, mode = displayMode()) {
 
 /** IDs der Positionen, für die News abgerufen werden (größte N mit aktiviertem Abruf). */
 function newsTopIds() {
-  return new Set([...state.portfolio.positions].filter(p => p.newsEnabled !== false && p.type !== 'Cash')
+  const min = Number(state.settings.watchMinWeight ?? 0);
+  return new Set(state.portfolio.positions
+    .filter(p => p.newsEnabled !== false && p.type !== 'Cash' && (p.weight || 0) >= min)
     .map(p => p.id));
 }
 
@@ -219,7 +221,9 @@ function renderLookup() {
         <button class="btn small" type="button" data-act="filter" data-pos="${esc(p.id)}">News (${n})</button>
         <button class="btn small ghost" type="button" data-act="edit" data-pos="${esc(p.id)}">Bearbeiten</button>
       </div>
-      ${top.has(p.id) ? '' : `<p class="muted small hit-note">Für diese Position sind News abgeschaltet (Schalter unter „Depot“).</p>`}
+      ${top.has(p.id) ? '' : `<p class="muted small hit-note">${p.newsEnabled === false
+        ? 'Für diese Position sind News abgeschaltet (Schalter unter „Depot“).'
+        : `Keine News: Gewichtung unter ${esc(String(state.settings.watchMinWeight))} % (unter „Mehr“ einstellbar).`}</p>`}
     </div>`;
   }).join('') + (hits.length > 5 ? `<p class="muted small">… und ${hits.length - 5} weitere</p>` : '');
 }
@@ -245,10 +249,10 @@ function renderDepot() {
   const onCount = pf.positions.filter(newsOn).length;
   $('#newsCount').textContent = `News für ${onCount} von ${pf.positions.length} Positionen`;
   $('#positionList').innerHTML = ps.map(p => `
-    <li class="pos-row ${newsOn(p) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
+    <li class="pos-row ${newsOn(p) && topIds.has(p.id) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
       <div class="pos-main">
         <span class="pos-name">${esc(p.name)}</span>
-        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}</span>
+        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? ` · unter ${esc(String(state.settings.watchMinWeight))} %` : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
       <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span></div>
@@ -1065,7 +1069,9 @@ function bindEvents() {
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
     s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
+    const oldMin = s.watchMinWeight;
     s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
+    if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste
     if (e.target.name === 'notify') {
       if (f.notify.checked) {
         if (!('Notification' in window)) { f.notify.checked = false; toast('Benachrichtigungen werden hier nicht unterstützt.'); }

@@ -130,8 +130,11 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   const raw = [];
   let poolInfo = null;
 
-  positions = positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash' && splitTerms(p.searchTerm || p.name).length);
-  if (!positions.length) return { items: [], errors: ['Keine Positionen mit News-Abruf vorhanden.'], poolInfo };
+  // Lokale Suchliste: eingeschaltete Positionen ab der eingestellten Gewichtung (Standard 2 %)
+  const minWeight = Number(settings.watchMinWeight ?? 0);
+  positions = positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash' && (p.weight || 0) >= minWeight
+    && splitTerms(p.searchTerm || p.name).length);
+  if (!positions.length) return { items: [], errors: [`Keine Position ab ${minWeight} % Gewichtung mit eingeschalteten News.`], poolInfo };
   if (!enabledSources.length) return { items: [], errors: ['Keine Nachrichtenquelle aktiv (siehe „Quellen“).'], poolInfo };
 
   onProgress(0, 2);
