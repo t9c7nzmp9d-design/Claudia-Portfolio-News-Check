@@ -111,7 +111,7 @@
           <select name="lang"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="any">beliebig</option></select>
         </label>
         <label>RSS-Feed (optional) <input name="rss" placeholder="https://…/rss.xml" inputmode="url" autocapitalize="off"></label>
-        <p class="muted small">RSS-Feeds lassen sich im Browser meist nur über einen CORS-Proxy abrufen (siehe Einstellungen).</p>
+        <p class="muted small">Viele Feeds erlauben keinen direkten Abruf aus dem Browser. Zuverlässiger: die Quelle in <code>news/feeds.json</code> auf GitHub eintragen – dann ist sie Teil der News-Sammlung.</p>
         <button class="btn primary" type="submit">Quelle hinzufügen</button>
       </form>
       <button id="resetSourcesBtn" class="btn ghost" type="button">Vorschläge wiederherstellen</button>
@@ -121,26 +121,7 @@
     <section id="view-more" class="view" data-view="more" hidden>
       <form id="settingsForm" class="card form">
         <h2>News-Einstellungen</h2>
-        <label>Nachrichtendienst
-          <select name="provider">
-            <option value="pool">News-Sammlung (empfohlen)</option>
-            <option value="auto">Live-Suche: GDELT, sonst Google News</option>
-            <option value="gdelt">Live-Suche: nur GDELT</option>
-            <option value="gnews">Live-Suche: nur Google News (über Proxy)</option>
-          </select>
-        </label>
         <p id="poolHint" class="muted small"></p>
-        <details class="advanced">
-          <summary>Erweitert (nur für die Live-Suche)</summary>
-          <label>CORS-Proxy (optional)
-            <input name="proxyUrl" placeholder="https://mein-proxy.workers.dev/?url={url}" inputmode="url" autocapitalize="off">
-          </label>
-          <label class="check"><input type="checkbox" name="publicProxy"> Öffentlichen Ausweich-Proxy erlauben, wenn der direkte Abruf blockiert ist</label>
-          <p class="muted small">Ausweich-Proxys (allorigins.win, codetabs.com) sehen nur die Suchbegriffe, nicht dein Depot.</p>
-          <label>Live-Suche für die größten … Positionen
-            <input name="maxPositions" type="number" min="1" max="100" step="1">
-          </label>
-        </details>
         <fieldset class="inline">
           <legend>Sprachen</legend>
           <label class="check"><input type="checkbox" name="lang_de"> Deutsch</label>

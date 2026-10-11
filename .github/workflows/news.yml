@@ -33,10 +33,6 @@ jobs:
         run: |
           git fetch --depth=1 origin news-data && git show FETCH_HEAD:news.json > /tmp/prev.json || echo "Noch keine vorherige Sammlung"
 
-      - name: CORS-Prüfung (einmalig)
-        if: github.ref != 'refs/heads/main'
-        run: node scripts/check-cors.mjs
-
       - name: News sammeln
         run: |
           mkdir -p /tmp/out

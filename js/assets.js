@@ -21,6 +21,28 @@ export function isValidIsin(isin) {
   return (10 - (sum % 10)) % 10 === Number(isin[11]);
 }
 
+/** Prüfziffer zu den ersten 11 Zeichen einer ISIN. */
+export function isinCheckDigit(base11) {
+  const digits = base11.toUpperCase().split('').map(c => (/[A-Z]/.test(c) ? String(c.charCodeAt(0) - 55) : c)).join('');
+  let sum = 0;
+  let double = true;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = Number(digits[i]);
+    if (double) { d *= 2; if (d > 9) d -= 9; }
+    sum += d;
+    double = !double;
+  }
+  return String((10 - (sum % 10)) % 10);
+}
+
+/** Deutsche Wertpapiere: ISIN = „DE000“ + WKN + Prüfziffer (gilt für die meisten in Deutschland emittierten Titel). */
+export function isinFromDeWkn(wkn) {
+  wkn = String(wkn || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(wkn)) return '';
+  const base = 'DE000' + wkn;
+  return base + isinCheckDigit(base);
+}
+
 export function looksLikeWkn(s) {
   s = String(s || '').trim().toUpperCase();
   // reine Buchstabenfolgen (z. B. "APPLE1") sind selten, daher mindestens eine Ziffer verlangen

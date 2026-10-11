@@ -1,5 +1,5 @@
-// Einmalige Prüfung: Welche Feeds erlauben den direkten Abruf aus dem Browser (CORS)?
-// Aufruf: node scripts/check-cors.mjs
+// Prüft, welche Feeds den direkten Abruf aus dem Browser erlauben (CORS-Header).
+// Aufruf (auf einem Rechner mit Internet oder in einer GitHub Action): node scripts/check-cors.mjs
 import { readFileSync } from 'node:fs';
 const cfg = JSON.parse(readFileSync(new URL('../news/feeds.json', import.meta.url), 'utf8'));
 const extra = [

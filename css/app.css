@@ -267,3 +267,6 @@ details.advanced summary { font-weight: 600; font-size: .92rem; }
 .cand .muted { display: block; }
 textarea.terms { width: 100%; min-height: 160px; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .meta .also { color: var(--muted); }
+table.cols select { min-height: 36px; padding: 4px 8px; font-size: .85rem; width: 100%; }
+table.cols td { vertical-align: top; }
+table.cols td:last-child { width: 46%; }

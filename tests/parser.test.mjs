@@ -89,3 +89,67 @@ test('ISIN im Namen', () => {
   const p = recognize({ name: 'Apple Inc. (US0378331005)' });
   assert.equal(p.isin, 'US0378331005');
 });
+
+// ---- Typische Bank-Exporte (Spaltentitel aus der Praxis) ----
+const names = res => res.positions.map(p => p.name);
+
+test('DKB-Stil: „Wertpapierbezeichnung“, „Bestand“, „Kurswert in EUR“', () => {
+  const res = rowsToPositions(parseCsv(
+    'Bestand;Einheit;Wertpapierbezeichnung;ISIN;WKN;Kurs;Kurswert in EUR\n' +
+    '10;Stück;SAP SE;DE0007164600;716460;178,40;1.784,00\n' +
+    '5;Stück;Allianz SE;DE0008404005;840400;342,80;1.714,00\n'));
+  assert.equal(res.mapping.name, 2);
+  assert.equal(res.mapping.quantity, 0);
+  assert.equal(res.mapping.value, 6);
+  assert.deepEqual(names(res), ['SAP SE', 'Allianz SE']);
+  assert.equal(res.positions[0].value, 1784);
+});
+
+test('Sparkasse-Stil: „Gattung“ ist der Name, „Nominal/Stück“, „Kurswert“', () => {
+  const res = rowsToPositions(parseCsv(
+    'Gattung;WKN;Nominal/Stück;Akt. Kurs;Kurswert;Währung\n' +
+    'Siemens AG Namens-Aktien;723610;8;231,15;1.849,20;EUR\n' +
+    'iShares Core MSCI World;A0RPWH;60;98,40;5.904,00;EUR\n'));
+  assert.equal(res.mapping.name, 0);
+  assert.equal(res.mapping.currency, 5);
+  assert.equal(res.mapping.price, 3);
+  assert.deepEqual(names(res), ['Siemens AG Namens-Aktien', 'iShares Core MSCI World']);
+  assert.equal(res.positions[1].type, 'ETF');
+});
+
+test('comdirect-Stil: Einstandswert wird nicht als Wert genommen, Diff. % nicht als Gewicht', () => {
+  const res = rowsToPositions(parseCsv(
+    'Stück/Nom.;Bezeichnung;WKN;Einstandswert;Aktuell;Diff. %;Wert in EUR\n' +
+    '12;SAP SE;716460;1.500,00;178,40;+42,72 %;2.140,80\n' +
+    '40;Infineon;623100;1.200,00;36,12;+20,40 %;1.444,80\n'));
+  assert.equal(res.mapping.value, 6);
+  assert.equal(res.mapping.weight, undefined);
+  assert.equal(res.positions[0].value, 2140.8);
+});
+
+test('ING-Stil: „Wertpapiername“, „Stück / Nominale“, „Einstandskurs“ ist kein Kurs', () => {
+  const res = rowsToPositions(parseCsv(
+    'Wertpapiername;ISIN;Stück / Nominale;Einstandskurs;Kurs;Kurswert;Gewinn / Verlust\n' +
+    'Apple Inc.;US0378331005;10;150,00;219,50;2.195,00;695,00\n'));
+  assert.equal(res.mapping.name, 0);
+  assert.equal(res.mapping.price, 4);
+  assert.equal(res.mapping.value, 5);
+});
+
+test('Falsch beschriftete Spalte wird über den Inhalt korrigiert', () => {
+  // „Name“ enthält hier nur Zahlen (z. B. Depotnummer) → darf nicht als Name dienen
+  const res = rowsToPositions(parseCsv(
+    'Name;Titel;Wert\n' +
+    '4711;Apple Inc.;1.000,00\n' +
+    '4711;SAP SE;500,00\n'));
+  assert.equal(res.mapping.name, 1);
+  assert.deepEqual(names(res), ['Apple Inc.', 'SAP SE']);
+});
+
+test('Manuelle Spaltenzuordnung überschreibt die Automatik', () => {
+  const rows = parseCsv('A;B;C\nApple;US0378331005;100\nSAP;DE0007164600;300\n');
+  const res = rowsToPositions(rows, { name: 0, isin: 1, value: 2 });
+  assert.deepEqual(names(res), ['Apple', 'SAP']);
+  assert.equal(res.positions[1].weight, 75);
+  assert.ok(res.columns.length === 3 && res.columns[2].field === 'value');
+});

@@ -18,24 +18,27 @@ export const FIELD_LABELS = {
 };
 
 // Muster für Spaltenüberschriften (auf normalisierten Text angewendet). Höherer Score gewinnt.
+// Deutsche Bank-Exporte nutzen oft zusammengesetzte Wörter („Wertpapierbezeichnung“, „Kurswert in EUR“,
+// „Stück/Nom.“) – deshalb werden Wortteile erkannt, nicht nur ganze Wörter.
 const HEADER_PATTERNS = {
   isin: [[/^isin$/, 10], [/\bisin\b/, 9], [/\b(kennung|identifier|kennnummer|id)\b/, 4]],
   wkn: [[/^wkn$/, 10], [/\bwkn\b|wertpapierkenn|valor|valoren/, 9]],
   symbol: [[/\b(ticker|symbol|kuerzel|boersenkuerzel)\b/, 8]],
-  name: [[/^(name|bezeichnung|titel|wertpapier|asset|instrument)$/, 10],
-    [/\b(name|bezeichnung|wertpapiername|wertpapier|titel|asset|instrument|security|holding|beschreibung|description|produkt|position)\b/, 7]],
-  value: [[/\b(marktwert|kurswert|depotwert|positionswert|bestandswert|gesamtwert|market value|current value)\b/, 10],
-    [/^wert\b|\bwert in\b|\bwert eur\b/, 9], [/\b(wert|value|betrag|amount|volumen|eur|summe)\b/, 6]],
-  weight: [[/\b(gewicht|gewichtung|weight|weighting|allocation|allokation|portfolioanteil|depotanteil)\b/, 10],
+  name: [[/^(name|bezeichnung|titel|wertpapier|asset|instrument|gattung)$/, 10],
+    [/(bezeichnung|wertpapiername|name des|^name\b|\bname$)/, 9],
+    [/\b(name|titel|asset|instrument|security|holding|beschreibung|description|produkt|position|gattung)\b|^wertpapier/, 7]],
+  value: [[/(marktwert|kurswert|depotwert|positionswert|bestandswert|gesamtwert|tageswert|aktueller wert|akt wert|market value|current value)/, 10],
+    [/^wert\b|\bwert in\b|\bwert eur\b|\bwert €|\bwert$/, 9], [/\b(value|betrag|amount|volumen|eur|summe)\b/, 6]],
+  weight: [[/(gewicht|weight|allocation|allokation|portfolioanteil|depotanteil|anteil am|anteil in|anteil %)/, 10],
     [/\b(anteil|quote|prozent|percent|share of)\b/, 7]],
-  quantity: [[/\b(stueck|stuck|stueckzahl|anzahl|menge|quantity|qty|shares|units|nominal|bestand|anteile)\b/, 9]],
-  price: [[/\b(kurs|preis|price|kurs eur|last|letzter kurs|aktueller kurs)\b/, 7]],
+  quantity: [[/(stueck|stuckzahl|anzahl|menge|quantity|\bqty\b|\bshares\b|\bunits\b|nominal|\bbestand\b|\banteile\b|\bstk\b)/, 9]],
+  price: [[/(^kurs\b|\bkurs$|akt kurs|aktueller kurs|letzter kurs|schlusskurs|tageskurs|\bkurs in\b|\bkurs eur\b|\bpreis\b|\bprice\b|\blast\b)/, 7]],
   currency: [[/\b(waehrung|wahrung|currency|ccy|whg)\b/, 9]],
-  type: [[/\b(typ|type|art|gattung|anlageklasse|asset class|assetklasse|kategorie|category|wertpapierart)\b/, 8]]
+  type: [[/\b(typ|type|art|anlageklasse|asset class|assetklasse|kategorie|category|wertpapierart|gattungsart)\b/, 8]]
 };
 // Spalten mit diesen Begriffen sind keine Gewichtung (sondern z. B. Performance in %)
 const NOT_WEIGHT = /\b(perf|performance|veraenderung|change|gewinn|verlust|g v|guv|rendite|entwicklung|diff|differenz|plus|minus|ytd|dividende|yield|ter|kosten)\b/;
-const NOT_VALUE = /\b(einstand|kaufwert|einstandswert|cost|kaufkurs|einstandskurs|buy)\b/;
+const NOT_VALUE = /(einstand|kaufwert|cost|kaufkurs|buy|anschaffung|vortag)/;
 const TOTAL_ROW = /^(summe|gesamt|gesamtsumme|total|sum|zwischensumme|depotsumme|grand total|gesamtwert)\b/;
 
 function headerScore(cell) {
@@ -49,7 +52,7 @@ function headerScore(cell) {
       let s = score;
       if (field === 'weight' && NOT_WEIGHT.test(n)) s = 0;
       if (field === 'value' && (NOT_VALUE.test(n) || NOT_WEIGHT.test(n))) s = 0;
-      if (field === 'price' && /wert/.test(n)) s = 0; // "Kurswert" ist ein Wert, kein Kurs
+      if (field === 'price' && /(wert|einstand|kauf|vortag)/.test(n)) s = 0; // "Kurswert" ist ein Wert, kein Kurs
       if (field === 'name' && /\b(wkn|isin|kennnummer|kennung)\b/.test(n)) s = 0;
       if (s && (!best || s > best.score)) best = { field, score: s };
     }
@@ -105,13 +108,60 @@ function findHeader(rows) {
   return { rows, header: byRow, transposed: false };
 }
 
-/** Ordnet jeder Spalte ein Feld zu (Kopfzeile + Inhaltsanalyse). */
-function mapColumns(headerCells, dataRows) {
+function columnStats(dataRows, width) {
+  const stats = [];
+  for (let c = 0; c < width; c++) {
+    const vals = dataRows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
+    const strs = vals.map(v => String(v).trim());
+    const nums = vals.map(v => parseNumber(v)).filter(v => v !== null);
+    const n = vals.length || 1;
+    stats.push({
+      col: c,
+      count: vals.length,
+      isinShare: strs.filter(s => isValidIsin(s.toUpperCase())).length / n,
+      wknShare: strs.filter(s => looksLikeWkn(s)).length / n,
+      numShare: nums.length / n,
+      textShare: strs.filter(s => /[a-zA-ZäöüÄÖÜ]{3,}/.test(s) && parseNumber(s) === null).length / n,
+      pctShare: strs.filter(s => /%\s*$/.test(s)).length / n,
+      currencyShare: strs.filter(s => /^[A-Z]{3}$/.test(s)).length / n,
+      sum: nums.reduce((a, b) => a + b, 0),
+      avgLen: strs.reduce((a, s) => a + s.length, 0) / (strs.length || 1)
+    });
+  }
+  return stats;
+}
+
+/** Passt der Inhalt einer Spalte zur vermuteten Bedeutung? Verhindert Fehldeutungen von Spaltentiteln. */
+function plausible(field, st) {
+  if (!st || !st.count) return false;
+  switch (field) {
+    case 'name': return st.textShare >= 0.5 && st.isinShare < 0.5 && st.currencyShare < 0.5;
+    case 'isin': return st.isinShare >= 0.3 || st.wknShare >= 0.3 || (st.textShare < 0.5 && st.numShare < 0.5);
+    case 'wkn': return st.wknShare >= 0.3 || st.isinShare >= 0.3;
+    case 'symbol': return st.numShare < 0.5;
+    case 'value': case 'weight': case 'quantity': case 'price': return st.numShare >= 0.6;
+    case 'currency': return st.currencyShare >= 0.5;
+    case 'type': return st.textShare >= 0.5;
+    default: return true;
+  }
+}
+
+/**
+ * Ordnet jeder Spalte ein Feld zu: erst über die Überschrift (nur wenn der Inhalt passt),
+ * dann über den Inhalt. `forced` ({feld: spalte}) überschreibt die Automatik (manuelle Korrektur).
+ */
+function mapColumns(headerCells, dataRows, forced = null) {
   const width = Math.max(headerCells.length, ...dataRows.map(r => r.length));
+  const stats = columnStats(dataRows, width);
+  if (forced) {
+    const mapping = {};
+    for (const [f, c] of Object.entries(forced)) if (c !== null && c !== undefined && c >= 0 && c < width) mapping[f] = Number(c);
+    return { mapping, stats, width };
+  }
   const candidates = [];
   for (let c = 0; c < width; c++) {
     const h = headerScore(headerCells[c]);
-    if (h) candidates.push({ col: c, ...h });
+    if (h && plausible(h.field, stats[c])) candidates.push({ col: c, ...h });
   }
   candidates.sort((a, b) => b.score - a.score);
   const mapping = {};
@@ -122,38 +172,20 @@ function mapColumns(headerCells, dataRows) {
     used.add(cand.col);
   }
 
-  // Inhaltsanalyse für fehlende oder ohne Kopfzeile
-  const stats = [];
-  for (let c = 0; c < width; c++) {
-    const vals = dataRows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
-    const strs = vals.map(v => String(v).trim());
-    const nums = vals.map(v => parseNumber(v)).filter(v => v !== null);
-    stats.push({
-      col: c,
-      count: vals.length,
-      isinShare: strs.filter(s => isValidIsin(s.toUpperCase())).length / (vals.length || 1),
-      wknShare: strs.filter(s => looksLikeWkn(s)).length / (vals.length || 1),
-      numShare: nums.length / (vals.length || 1),
-      textShare: strs.filter(s => /[a-zA-ZäöüÄÖÜ]{3,}/.test(s) && parseNumber(s) === null).length / (vals.length || 1),
-      pctShare: strs.filter(s => /%\s*$/.test(s)).length / (vals.length || 1),
-      sum: nums.reduce((a, b) => a + b, 0),
-      max: nums.length ? Math.max(...nums) : 0,
-      avgLen: strs.reduce((a, s) => a + s.length, 0) / (strs.length || 1)
-    });
-  }
+  // Inhaltsanalyse für fehlende Felder oder Tabellen ohne Kopfzeile
   const free = s => !used.has(s.col) && s.count > 0;
   const take = (field, s) => { if (s && mapping[field] === undefined) { mapping[field] = s.col; used.add(s.col); } };
 
   if (mapping.isin === undefined) take('isin', stats.filter(free).filter(s => s.isinShare > 0.5).sort((a, b) => b.isinShare - a.isinShare)[0]);
   if (mapping.wkn === undefined) take('wkn', stats.filter(free).filter(s => s.wknShare > 0.6 && s.isinShare < 0.2).sort((a, b) => b.wknShare - a.wknShare)[0]);
-  if (mapping.name === undefined) take('name', stats.filter(free).filter(s => s.textShare > 0.6).sort((a, b) => b.avgLen - a.avgLen)[0]);
+  if (mapping.name === undefined) take('name', stats.filter(free).filter(s => s.textShare > 0.6 && s.currencyShare < 0.5).sort((a, b) => b.avgLen - a.avgLen)[0]);
   if (mapping.weight === undefined) {
     take('weight', stats.filter(free).filter(s => s.numShare > 0.7 && (s.pctShare > 0.5 || Math.abs(s.sum - 1) < 0.02 || Math.abs(s.sum - 100) < 2)).sort((a, b) => b.pctShare - a.pctShare)[0]);
   }
   if (mapping.value === undefined && mapping.quantity === undefined) {
     take('value', stats.filter(free).filter(s => s.numShare > 0.7).sort((a, b) => b.sum - a.sum)[0]);
   }
-  return mapping;
+  return { mapping, stats, width };
 }
 
 function isTotalRow(row, mapping) {
@@ -167,18 +199,31 @@ function isTotalRow(row, mapping) {
  * Wandelt eine Tabelle (Array von Zeilen) in Positionen um.
  * Gibt { positions, mapping, transposed, headerRow, warnings } zurück.
  */
-export function rowsToPositions(rawRows) {
+export function rowsToPositions(rawRows, forcedMapping = null) {
   const rows0 = trimRows(rawRows);
   if (!rows0.length) return { positions: [], mapping: {}, warnings: ['Die Tabelle ist leer.'], score: 0 };
   const { rows, header, transposed } = findHeader(rows0);
+  // Manuelle Zuordnung ohne erkannte Kopfzeile: erste Zeile ist Kopfzeile, wenn dort in Zahlenspalten keine Zahl steht
+  if (header.index < 0 && forcedMapping) {
+    const numCols = ['value', 'weight', 'quantity', 'price'].map(f => forcedMapping[f]).filter(c => c !== undefined && c !== null);
+    if (numCols.length && numCols.every(c => parseNumber(rows[0]?.[c]) === null)) header.index = 0;
+  }
   const hasHeader = header.index >= 0;
   const headerCells = hasHeader ? rows[header.index] : [];
   const dataRows = hasHeader ? rows.slice(header.index + 1) : rows;
-  const mapping = mapColumns(headerCells, dataRows);
+  const { mapping, width } = mapColumns(headerCells, dataRows, forcedMapping);
   const warnings = [];
+  // Spaltenübersicht für die manuelle Korrektur im Import-Dialog
+  const fieldOf = Object.fromEntries(Object.entries(mapping).map(([f, c]) => [c, f]));
+  const columns = Array.from({ length: width }, (_, c) => ({
+    index: c,
+    header: hasHeader ? String(headerCells[c] ?? '').trim() : '',
+    samples: dataRows.map(r => r[c]).filter(v => v !== null && v !== undefined && String(v).trim() !== '').slice(0, 3).map(v => String(v).slice(0, 40)),
+    field: fieldOf[c] || ''
+  })).filter(col => col.header || col.samples.length);
 
   if (mapping.name === undefined && mapping.isin === undefined && mapping.wkn === undefined && mapping.symbol === undefined) {
-    return { positions: [], mapping, transposed, warnings: ['Keine Spalte mit Namen, ISIN oder WKN gefunden.'], score: 0 };
+    return { positions: [], mapping, transposed, columns, warnings: ['Keine Spalte mit Namen, ISIN oder WKN gefunden – bitte unten die Spalten zuordnen.'], score: 0 };
   }
 
   // Spaltenweise erkennen, ob deutsches Zahlenformat genutzt wird ("1.234,56")
@@ -241,7 +286,7 @@ export function rowsToPositions(rawRows) {
     warnings.push('Weder Wert noch Gewichtung gefunden – alle Positionen werden gleich gewichtet.');
   }
   const score = recognized.length * 2 + Object.keys(mapping).length * 3 + (header.score || 0);
-  return { positions: recognized, mapping, transposed, headerRow: hasHeader ? header.index : null, headerCells, warnings, score };
+  return { positions: recognized, mapping, transposed, headerRow: hasHeader ? header.index : null, headerCells, columns, warnings, score };
 }
 
 function normalizeType(t) {
@@ -344,17 +389,23 @@ export async function readTableFile(file) {
   }));
 }
 
+/**
+ * Wertet bereits gelesene Tabellenblätter aus. Ohne Vorgaben wird das beste Blatt automatisch gewählt;
+ * mit { sheet, mapping } wird genau dieses Blatt mit der manuell korrigierten Spaltenzuordnung gelesen.
+ */
+export function parseSheets(sheets, { sheet = null, mapping = null } = {}) {
+  let best = null;
+  for (const sh of sheets) {
+    if (sheet !== null && sh.name !== sheet) continue;
+    const res = rowsToPositions(sh.rows, mapping);
+    if (!best || res.score > best.score) best = { ...res, sheet: sh.name };
+  }
+  return { ...best, sheetCount: sheets.length, sheetNames: sheets.map(s => s.name) };
+}
+
 /** Liest eine Datei und wählt automatisch das beste Tabellenblatt. */
 export async function importFile(file) {
   const sheets = await readTableFile(file);
-  let best = null;
-  for (const sh of sheets) {
-    const res = rowsToPositions(sh.rows);
-    if (!best || res.score > best.score) best = { ...res, sheet: sh.name };
-  }
-  if (!best || !best.positions.length) {
-    const w = best?.warnings?.join(' ') || '';
-    throw new Error('In der Datei wurden keine Positionen erkannt. ' + w);
-  }
-  return { ...best, fileName: file.name, lastModified: file.lastModified || null, sheetCount: sheets.length };
+  const best = parseSheets(sheets);
+  return { ...best, sheets, fileName: file.name, lastModified: file.lastModified || null };
 }

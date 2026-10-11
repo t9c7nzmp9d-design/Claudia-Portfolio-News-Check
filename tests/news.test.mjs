@@ -59,3 +59,10 @@ test('Adresse der News-Sammlung aus GitHub-Pages-Adresse', () => {
   assert.equal(defaultPoolUrl({ hostname: 'max.github.io', pathname: '/depot-news/' }),
     'https://raw.githubusercontent.com/max/depot-news/news-data/news.json');
 });
+
+test('Stellenanzeigen werden erkannt', async () => {
+  const { isJobAd } = await import('../js/news.js');
+  assert.ok(isJobAd({ title: 'SAP Super User mit Schwerpunkt Umspannwerke (m/w/d), TenneT', domain: 'faz.net' }));
+  assert.ok(isJobAd({ title: 'Controller', domain: 'stellenmarkt.sueddeutsche.de' }));
+  assert.ok(!isJobAd({ title: 'SAP hebt Prognose an', domain: 'faz.net' }));
+});

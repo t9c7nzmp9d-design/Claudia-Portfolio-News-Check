@@ -146,6 +146,8 @@ function add(a, isNew) {
   if (!ts || ts < cutoff || !domain) return;
   const key = normTitle(title);
   if (!key) return;
+  // Stellenanzeigen aussortieren („… (m/w/d)“, Stellenmarkt-Subdomains)
+  if (/\((?:[mwdfx]\s*\/\s*){2}[mwdfx]\)/i.test(title) || /^(stellenmarkt|jobs?|karriere)\./.test(domain)) return;
   const prev = byKey.get(key);
   if (prev) {
     // Direkt-Link (Feed) vor Google-Weiterleitung bevorzugen, frühesten Zeitpunkt behalten

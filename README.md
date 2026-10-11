@@ -13,13 +13,14 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 |---|---|
 | **Einrichtung** | Beim ersten Start: lokales Verzeichnis wählen *oder* Tabelle hochladen *oder* überspringen → Musterdepot |
 | **Import** | CSV (`;` `,` Tab), Excel (`.xlsx/.xls/.ods`), Apple Numbers (`.numbers`) |
+| **Spalten korrigieren** | Im Import-Dialog jede Spalte mit Beispielwerten sehen und ihre Bedeutung per Auswahl ändern – die Positionen werden sofort neu eingelesen |
 | **Automatische Erkennung** | Kopfzeile auch unter Vorspann-Zeilen, Spaltenbedeutung (ISIN, WKN, Name, Wert, Gewicht, Stück, Kurs, Währung, Typ), gedrehte Tabellen (Felder in Zeilen), deutsches/englisches Zahlenformat, Gewicht als Bruch oder %, Summenzeilen werden ignoriert, mehrere Tabellenblätter → das passendste wird gewählt |
 | **Asset-Erkennung** | ISIN mit Prüfziffer, WKN (bei deutschen ISINs automatisch abgeleitet), Typ (Aktie, ETF, Fonds, ETC, Anleihe, Krypto, Rohstoff, Cash), Land; ISIN im Namen („Apple Inc. (US0378331005)“) |
 | **News-Suchbegriffe** | Firmenname ohne Rechtsform-Zusätze; bei ETFs der Index (z. B. „MSCI World“), bei Rohstoffen „Goldpreis OR Gold price“; pro Position editierbar |
 | **News** | News-Sammlung per GitHub Action (kein Proxy, kein Schlüssel); nur aktivierte Quellen, Position muss in Überschrift oder Anreißer vorkommen; doppelte Meldungen zusammengefasst; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
-| **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* WKN – Name, ISIN, WKN, Ticker, Typ und Suchbegriff werden über Wikidata und OpenFIGI gesucht; bei mehreren Treffern zur Auswahl |
+| **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* deutsche WKN – Name, ISIN, WKN, Ticker, Typ und Suchbegriff werden über Wikidata gesucht; bei mehreren Treffern zur Auswahl |
 | **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
@@ -74,18 +75,16 @@ App auf dem iPhone: sucht lokal nach deinen Positionen → Depot verlässt das G
 Hinweis: GitHub pausiert zeitgesteuerte Actions in öffentlichen Repositories nach 60 Tagen ohne Aktivität – dann unter
 *Actions* einmal „Enable workflow“ klicken.
 
-### Optional: Live-Suche
+### Welche Quellen sind direkt vom iPhone erreichbar?
 
-Unter „Mehr → Nachrichtendienst“ kann statt der Sammlung live gesucht werden (GDELT oder Google News über Proxy).
-Im Browser wird das häufig durch CORS blockiert (Safari: „Load failed“) und ist daher nicht der Standard.
+Browser dürfen fremde Seiten nur abrufen, wenn diese es per CORS-Header erlauben. Geprüft (Oktober 2026, `scripts/check-cors.mjs`):
 
-### Optional: eigener CORS-Proxy (kostenlos, ~5 Min.)
+| Direkt erreichbar ✓ | Nur über die News-Sammlung |
+|---|---|
+| tagesschau.de, CNBC, MarketWatch, WSJ Markets, onvista | Handelsblatt, FAZ, WiWo, manager magazin, SZ, Spiegel, Zeit, n-tv, Standard, NZZ, FT, BBC, Economist, Nikkei Asia, CoinDesk, Reuters/AP/Bloomberg (über Google News) |
+| – | GDELT (HTTP 429, kein CORS), Google News, Bing News, finanzen.net |
 
-1. Bei [Cloudflare](https://dash.cloudflare.com) anmelden → *Workers & Pages* → *Create Worker*.
-2. Inhalt von [`proxy/cloudflare-worker.js`](proxy/cloudflare-worker.js) einfügen, ggf. `ALLOWED_ORIGIN` und `ALLOWED_HOSTS` anpassen, *Deploy*.
-3. In der App unter **Mehr → CORS-Proxy**: `https://<name>.<konto>.workers.dev/?url={url}` eintragen und „Google News RSS“ wählen.
-
-Der Proxy lässt nur deine App-Herkunft und freigegebene Hosts zu (kein offener Proxy).
+Ist die News-Sammlung einmal nicht erreichbar, liest die App automatisch die direkt erreichbaren Quellen.
 
 ## Veröffentlichen auf GitHub Pages
 
@@ -112,14 +111,14 @@ css/app.css
 js/app.js      Oberfläche, Onboarding, Import-Ablauf, Sicherung, Benachrichtigungen
 js/parser.js   Datei lesen, Kopfzeile/Spalten/Ausrichtung/Zahlenformat erkennen
 js/assets.js   ISIN/WKN-Prüfung, Typ- & Suchbegriff-Erkennung
-js/news.js     News-Sammlung laden, Live-Suche (GDELT/Google), Zuordnung, Zusammenfassen, Sortierung
-js/lookup.js   Online-Suche für „+ Position“ (Wikidata, OpenFIGI)
+js/news.js     News-Sammlung laden (sonst direkte Feeds), Zuordnung, Zusammenfassen, Sortierung
+js/lookup.js   Online-Suche für „+ Position“ (Wikidata)
 scripts/collect-news.mjs  Sammelskript der GitHub Action
 news/          feeds.json (Quellen) und watchlist.txt (zusätzliche Suchbegriffe)
 js/sources.js  vorgeschlagene Quellen
 js/store.js    lokale Speicherung, Sicherung
 vendor/        SheetJS CE 0.18.5 (Apache-2.0), lokal ausgeliefert
-proxy/         optionaler Cloudflare-Worker
+scripts/check-cors.mjs  prüft, welche Feeds direkt aus dem Browser abrufbar sind
 ```
 
 Nach Änderungen an App-Dateien die Cache-Version in `sw.js` erhöhen, damit installierte Apps aktualisieren.
