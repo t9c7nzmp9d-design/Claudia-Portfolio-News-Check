@@ -67,12 +67,12 @@ Der Proxy lässt nur deine App-Herkunft und freigegebene Hosts zu (kein offener 
 
 ## Veröffentlichen auf GitHub Pages
 
-Das Repository enthält einen Workflow (`.github/workflows/pages.yml`), der Tests ausführt und die Seite veröffentlicht:
-
 1. Repository auf **Public** stellen (Settings → General → Danger Zone).
-2. **Settings → Pages → Source: „GitHub Actions“**.
-3. Auf `main` pushen (oder Workflow manuell starten). URL: `https://<benutzer>.github.io/<repo>/`.
+2. **Settings → Pages → Build and deployment → Source: „Deploy from a branch“**, Branch **`main`**, Ordner **`/ (root)`** → *Save*.
+3. Nach ein bis zwei Minuten ist die App erreichbar unter `https://<benutzer>.github.io/<repo>/`.
 4. In `datenschutz.html` Name/Kontakt eintragen.
+
+Der Workflow `.github/workflows/tests.yml` führt bei jedem Push und Pull Request die Tests aus.
 
 ## Entwicklung
 
