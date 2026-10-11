@@ -7,7 +7,7 @@ import { fetchNews, rankNews, bucketLabel } from './news.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -24,6 +24,9 @@ let autoTimer = null;
 let editingId = null;
 
 const posById = () => new Map(state.portfolio.positions.map(p => [p.id, p]));
+const newsOn = p => p.newsEnabled !== false;
+/** Nur Positionen, für die der Nutzer News sehen möchte. */
+const newsPosById = () => new Map(state.portfolio.positions.filter(newsOn).map(p => [p.id, p]));
 const save = (now) => saveState(state, now);
 
 // ---------------------------------------------------------------- Hilfen UI
@@ -113,15 +116,16 @@ function renderHeader() {
 }
 
 function renderNews() {
-  const map = posById();
+  const map = newsPosById();
   const mode = state.settings.bucket || 'day';
   let items = rankNews(state.news.items, map, mode);
   if (newsFilter) items = items.filter(it => it.positionIds.includes(newsFilter));
   const read = new Set(state.news.read);
 
   const chip = $('#filterChip');
-  if (newsFilter && map.get(newsFilter)) {
-    chip.innerHTML = `<button class="chip filter" type="button">Nur: ${esc(map.get(newsFilter).name)} ✕</button>`;
+  const allMap = posById();
+  if (newsFilter && allMap.get(newsFilter)) {
+    chip.innerHTML = `<button class="chip filter" type="button">Nur: ${esc(allMap.get(newsFilter).name)} ✕</button>`;
     $('button', chip).onclick = () => { newsFilter = null; renderNews(); };
   } else chip.innerHTML = '';
 
@@ -223,15 +227,35 @@ function renderDepot() {
       : (a, b) => (b.weight || 0) - (a.weight || 0));
   const maxW = Math.max(1, ...pf.positions.map(p => p.weight || 0));
   const topIds = newsTopIds();
+  const onCount = pf.positions.filter(newsOn).length;
+  $('#newsCount').textContent = `News für ${onCount} von ${pf.positions.length} Positionen`;
   $('#positionList').innerHTML = ps.map(p => `
-    <li><button type="button" class="pos" data-pos="${esc(p.id)}">
+    <li class="pos-row ${newsOn(p) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
       <div class="pos-main">
         <span class="pos-name">${esc(p.name)}</span>
-        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${topIds.has(p.id) ? ' · 📰' : ''}</span>
+        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) ? ` · außerhalb der Top ${state.settings.maxPositions}` : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
       <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span></div>
-    </button></li>`).join('') || '<li class="muted empty">Keine Positionen.</li>';
+    </button>${newsSwitch(p.id, newsOn(p), p.name, 'data-news')}</li>`).join('') || '<li class="muted empty">Keine Positionen.</li>';
+}
+
+/** Schiebeschalter „News an/aus“ für eine Position. */
+function newsSwitch(id, on, name, attr) {
+  return `<label class="switch news-switch" title="News für ${esc(name)} ${on ? 'abwählen' : 'anzeigen'}">
+    <input type="checkbox" role="switch" ${attr}="${esc(id)}" ${on ? 'checked' : ''} aria-label="News für ${esc(name)}">
+    <span class="slider"></span></label>`;
+}
+
+function setNewsEnabled(ids, on) {
+  const set = new Set(ids);
+  for (const p of state.portfolio.positions) if (set.has(p.id)) p.newsEnabled = on;
+  if (!on && set.has(newsFilter)) newsFilter = null;
+  state.portfolio.updatedAt = Date.now();
+  save();
+  renderAll();
+  renderDepot();
+  autoBackup();
 }
 
 function renderSources() {
@@ -305,13 +329,13 @@ function applyImport(res, mode, kind) {
   const old = state.portfolio.positions;
   const incoming = res.positions.map(p => {
     const o = old.find(x => keyMatches(x, p));
-    if (!o) return { ...p, newsEnabled: true };
+    if (!o) return { ...p, newsEnabled: p.newsChoice ?? p.type !== 'Cash' };
     return {
       ...p,
       id: o.id,
       searchTerm: o.searchTermCustom ? o.searchTerm : p.searchTerm,
       searchTermCustom: !!o.searchTermCustom,
-      newsEnabled: o.newsEnabled !== false,
+      newsEnabled: p.newsChoice ?? o.newsEnabled !== false,
       type: o.typeCustom ? o.type : p.type,
       typeCustom: !!o.typeCustom
     };
@@ -323,6 +347,7 @@ function applyImport(res, mode, kind) {
   } else {
     result = [...incoming, ...old.filter(o => o.manual && !incoming.some(n => n.id === o.id))];
   }
+  for (const r of result) delete r.newsChoice;
   recomputeWeights(result);
   state.portfolio.positions = result;
   state.portfolio.source = {
@@ -341,15 +366,33 @@ function importReportHtml(res) {
     const head = res.headerCells?.[c];
     return `<li><b>${esc(FIELD_LABELS[f] || f)}</b> ← ${head ? '„' + esc(head) + '“' : 'Spalte ' + (c + 1)}</li>`;
   }).join('');
-  const preview = [...res.positions].sort((a, b) => b.weight - a.weight).slice(0, 6).map(p =>
-    `<tr><td>${esc(p.name)}</td><td>${esc(p.type)}</td><td class="num">${esc(fmtPercent(p.weight))}</td></tr>`).join('');
+  // Vorbelegung: bisherige Auswahl bei bekannten Positionen, sonst an (Cash aus)
+  const old = state.portfolio.positions;
+  for (const p of res.positions) {
+    const o = old.find(x => keyMatches(x, p));
+    p.newsChoice ??= o ? o.newsEnabled !== false : p.type !== 'Cash';
+  }
+  const rows = res.positions.map((p, i) => ({ p, i })).sort((a, b) => b.p.weight - a.p.weight).map(({ p, i }) =>
+    `<tr><td>${esc(p.name)}<div class="muted small">${esc(p.type)}</div></td><td class="num">${esc(fmtPercent(p.weight))}</td>
+      <td class="num">${newsSwitch(String(i), p.newsChoice, p.name, 'data-imp')}</td></tr>`).join('');
   const types = Object.entries(res.positions.reduce((m, p) => { m[p.type] = (m[p.type] || 0) + 1; return m; }, {}))
     .map(([t, n]) => `${n}× ${t}`).join(', ');
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
       ${res.positions.length} Positionen erkannt (${esc(types)}).${res.transposed ? ' <em>Tabelle war gedreht (Felder in Zeilen) – automatisch umgestellt.</em>' : ''}</p>
     <details><summary>Erkannte Spalten</summary><ul class="small">${cols}</ul></details>
-    <table class="mini"><thead><tr><th>Größte Positionen</th><th>Typ</th><th class="num">Anteil</th></tr></thead><tbody>${preview}</tbody></table>
+    <div class="row-between imp-head">
+      <strong>News pro Position</strong>
+      <span><button type="button" class="link-btn small" data-imp-all="1">Alle an</button> · <button type="button" class="link-btn small" data-imp-all="0">Alle aus</button></span>
+    </div>
+    <p class="muted small">Schalter aus = für diese Position keine News. Jederzeit änderbar unter „Depot“.</p>
+    <div class="imp-scroll"><table class="mini"><thead><tr><th>Position</th><th class="num">Anteil</th><th class="num">News</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p id="impCount" class="muted small"></p>
     ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}`;
+}
+
+function updateImpCount() {
+  const ps = pendingImport?.res.positions || [];
+  $('#impCount').textContent = `News für ${ps.filter(p => p.newsChoice).length} von ${ps.length} Positionen`;
 }
 
 async function handleFile(file, { auto = false, kind = 'file' } = {}) {
@@ -362,6 +405,7 @@ async function handleFile(file, { auto = false, kind = 'file' } = {}) {
     }
     pendingImport = { res, kind };
     $('#importReport').innerHTML = importReportHtml(res);
+    updateImpCount();
     const dlg = $('#importDlg');
     $('input[name=mode][value=replace]', dlg).checked = true;
     dlg.showModal();
@@ -666,7 +710,7 @@ async function refreshNews({ silent = false } = {}) {
 async function notifyNew(items) {
   const s = state.settings;
   if (!s.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
-  const map = posById();
+  const map = newsPosById();
   const relevant = rankNews(items, map, s.bucket).filter(it => it.weight >= (s.notifyMinWeight || 0));
   if (!relevant.length) return;
   const reg = await navigator.serviceWorker?.getRegistration();
@@ -795,6 +839,27 @@ function bindEvents() {
   $('#addPosBtn').addEventListener('click', () => openPosEditor(null));
   $('#exportPosBtn').addEventListener('click', exportPositions);
   $('#depotFilter').addEventListener('input', renderDepot);
+  $('#positionList').addEventListener('change', e => {
+    const id = e.target.dataset.news;
+    if (id) setNewsEnabled([id], e.target.checked);
+  });
+  $('#newsAllOn').addEventListener('click', () => setNewsEnabled(state.portfolio.positions.map(p => p.id), true));
+  $('#newsAllOff').addEventListener('click', () => {
+    if (confirm('Für alle Positionen keine News mehr anzeigen?')) setNewsEnabled(state.portfolio.positions.map(p => p.id), false);
+  });
+  $('#importReport').addEventListener('change', e => {
+    const i = e.target.dataset.imp;
+    if (i === undefined || !pendingImport) return;
+    pendingImport.res.positions[Number(i)].newsChoice = e.target.checked;
+    updateImpCount();
+  });
+  $('#importReport').addEventListener('click', e => {
+    const v = e.target.dataset.impAll;
+    if (v === undefined || !pendingImport) return;
+    pendingImport.res.positions.forEach(p => { p.newsChoice = v === '1'; });
+    $$('#importReport input[data-imp]').forEach(inp => { inp.checked = v === '1'; });
+    updateImpCount();
+  });
   $('#depotSort').addEventListener('change', renderDepot);
 
   // Positionseditor

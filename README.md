@@ -19,6 +19,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **News** | Nur Artikel aus aktivierten Quellen, deren Überschrift die Position nennt; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
+| **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
 | **Datensicherung** | JSON-Sicherung speichern/laden (iPhone: Teilen → „In Dateien sichern“), automatische Sicherung ins verbundene Verzeichnis, Export als Excel/CSV |

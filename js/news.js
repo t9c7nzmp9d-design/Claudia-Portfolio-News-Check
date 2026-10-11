@@ -154,6 +154,7 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   const errors = [];
   let raw = [];
 
+  positions = positions.filter(p => p.newsEnabled !== false);
   const matcherCache = new Map(positions.map(p => [p.id, termMatchers(p)]));
 
   if (!active.length) return { items: [], errors: ['Keine Positionen mit Suchbegriff vorhanden.'] };

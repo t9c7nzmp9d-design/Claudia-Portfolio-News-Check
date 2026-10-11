@@ -118,7 +118,7 @@ input[type=checkbox], input[type=radio] { width: 20px; height: 20px; min-height:
 .toggle-row .muted { margin-right: auto; }
 .toggle-label { font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; }
 .toggle-label.on { color: var(--accent); }
-.switch { position: relative; width: 52px; height: 30px; flex: none; }
+.switch { position: relative; display: inline-block; vertical-align: middle; width: 52px; height: 30px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
 .slider {
   position: absolute; inset: 0; border-radius: 30px; background: var(--surface-2); border: 1px solid var(--border); cursor: pointer;
@@ -235,3 +235,22 @@ details summary { cursor: pointer; }
 }
 .hit-note { grid-column: 1 / -1; margin: 0; }
 .form h3 { margin-top: 16px; }
+
+/* News-Auswahl pro Position */
+.pos-row { display: flex; align-items: center; gap: 10px; }
+.pos-row .pos { flex: 1; min-width: 0; }
+.pos-row.news-off .pos { opacity: .55; }
+.news-switch { width: 46px; height: 28px; }
+.news-switch .slider::before { width: 22px; height: 22px; }
+.news-switch input:checked + .slider::before { transform: translateX(18px); }
+.news-switch .slider::before { background: var(--muted); }
+.news-switch input:checked + .slider { background: var(--accent-soft); border-color: var(--accent); }
+.news-switch input:checked + .slider::before { background: var(--accent); }
+.news-bulk { margin: 4px 2px 8px; }
+.imp-head { margin-top: 14px; }
+.imp-scroll { max-height: 45vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.imp-scroll table.mini { margin: 0; }
+.imp-scroll th { position: sticky; top: 0; background: var(--surface); }
+.imp-scroll td.num { vertical-align: middle; }
+table.mini .num { white-space: nowrap; }
+.news-bulk > span:last-child, .imp-head > span { white-space: nowrap; }
