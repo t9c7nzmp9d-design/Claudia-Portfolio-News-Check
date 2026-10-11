@@ -49,9 +49,13 @@ Spaltennamen sind egal.
 
 | Dienst | Einrichtung | Bemerkung |
 |---|---|---|
-| **GDELT** (Standard) | keine | Kostenlos, ohne Schlüssel, direkt aus dem Browser. Max. 1 Anfrage / 5 s → Positionen werden gebündelt (ca. 3 Anfragen für 20 Positionen). Paywall-Medien (FT, WSJ, Bloomberg) teils lückenhaft erfasst. |
-| **Google News RSS** | CORS-Proxy nötig | Genauere Treffer und mehr Quellen. |
-| **RSS-Feeds** je Quelle | meist CORS-Proxy nötig | z. B. tagesschau.de Wirtschaft |
+| **Automatisch** (Standard) | keine | Erst GDELT direkt; ist GDELT nicht erreichbar (Safari meldet dann z. B. „Load failed“), werden die News automatisch über Google News geladen. |
+| **GDELT** | keine | Kostenlos, ohne Schlüssel. Max. 1 Anfrage / 5 s → Begriffe gebündelt. Wird je nach Browser/Netz wegen fehlender CORS-Freigabe oder Überlastung blockiert. Paywall-Medien teils lückenhaft. |
+| **Google News RSS** | Proxy | Genauere Treffer, mehr Quellen. Läuft über deinen eigenen CORS-Proxy oder – wenn erlaubt – über einen öffentlichen Ausweich-Proxy (allorigins.win, codetabs.com). |
+| **RSS-Feeds** je Quelle | meist Proxy | z. B. tagesschau.de Wirtschaft |
+
+Öffentliche Ausweich-Proxys sehen nur die Suchbegriffe (z. B. „SAP“), nicht Werte oder Gewichtungen. Sie sind kostenlos, aber
+nicht immer zuverlässig. Für mehr Privatsphäre und Stabilität: eigenen Proxy einrichten und den Ausweich-Proxy unter „Mehr“ abschalten.
 
 ### Optional: eigener CORS-Proxy (kostenlos, ~5 Min.)
 

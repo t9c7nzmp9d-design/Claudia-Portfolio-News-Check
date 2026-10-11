@@ -1,10 +1,11 @@
 // News abrufen, Positionen zuordnen und sortieren.
 //
-// Anbieter:
-//  • GDELT DOC 2.0 API (Standard): kostenlos, ohne Schlüssel, direkt aus dem Browser abrufbar.
-//    Limit: 1 Anfrage alle 5 Sekunden → mehrere Positionen werden pro Anfrage gebündelt.
-//  • Google News RSS: genauere Treffer, benötigt aber einen CORS-Proxy (siehe proxy/ und README).
-//  • Eigene RSS-Feeds je Quelle: ebenfalls über Proxy (oder direkt, falls der Feed CORS erlaubt).
+// Anbieter (Einstellung „provider“):
+//  • auto (Standard): GDELT direkt; ist GDELT nicht erreichbar (z. B. Safari „Load failed“ durch
+//    CORS-Sperre, Überlastung oder Zeitüberschreitung), automatisch Google News RSS über Proxy.
+//  • gdelt: GDELT DOC 2.0 API – kostenlos, ohne Schlüssel. Limit 1 Anfrage / 5 s → Begriffe gebündelt.
+//  • gnews: Google News RSS – benötigt einen CORS-Proxy (eigener oder öffentlicher Ausweich-Proxy).
+//  • Eigene RSS-Feeds je Quelle: direkt (falls CORS erlaubt) oder über Proxy.
 
 import { sleep, hostOf, hostMatches, escapeRegExp, norm } from './util.js';
 import { splitTerms } from './assets.js';
@@ -48,7 +49,7 @@ export function buildGdeltQuery(terms, domains) {
   return `${t} ${d}`;
 }
 
-async function fetchGdelt(terms, domains, days, signal) {
+async function fetchGdelt(terms, domains, days, signal, fetcher) {
   const params = new URLSearchParams({
     query: buildGdeltQuery(terms, domains),
     mode: 'artlist',
@@ -57,10 +58,12 @@ async function fetchGdelt(terms, domains, days, signal) {
     sort: 'datedesc',
     timespan: `${Math.max(1, Math.min(90, days))}d`
   });
-  const res = await fetch(`${GDELT_URL}?${params}`, { signal });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`GDELT antwortet mit ${res.status}`);
-  if (!text.trim().startsWith('{')) throw new Error('GDELT: ' + text.trim().slice(0, 160));
+  const text = await fetcher(`${GDELT_URL}?${params}`);
+  if (!text.trim().startsWith('{')) {
+    const err = new Error('GDELT: ' + text.trim().replace(/<[^>]+>/g, ' ').slice(0, 160));
+    err.gdeltText = true; // Antwort kam an, Anfrage aber abgelehnt (z. B. Begriff zu kurz)
+    throw err;
+  }
   const data = JSON.parse(text);
   return (data.articles || []).map(a => ({
     url: a.url,
@@ -99,16 +102,83 @@ export function parseFeed(xmlText, fallbackSource = '') {
   }).filter(a => a.url && a.title);
 }
 
-async function fetchText(url, proxyUrl, signal) {
-  // Erst direkt versuchen (manche Feeds erlauben CORS), dann über Proxy.
+// Öffentliche Ausweich-Proxys (nur genutzt, wenn erlaubt; sie sehen die Suchanfrage, nicht das Depot).
+export const PUBLIC_PROXIES = [
+  'https://api.allorigins.win/raw?url={url}',
+  'https://api.codetabs.com/v1/proxy?quest={url}'
+];
+const TIMEOUT_MS = 20000;
+
+/** Übersetzt Browser-Fehler wie Safaris „Load failed“ / Chromes „Failed to fetch“ in verständlichen Text. */
+export function friendlyError(e, what) {
+  if (e?.timeout) return `${what}: keine Antwort (Zeitüberschreitung)`;
+  if (e instanceof TypeError || /load failed|failed to fetch|networkerror/i.test(e?.message || '')) {
+    return `${what}: nicht erreichbar oder vom Browser blockiert (CORS/Netzwerk)`;
+  }
+  return `${what}: ${e?.message || e}`;
+}
+
+async function fetchWithTimeout(url, signal, ms = TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+  signal?.addEventListener('abort', onAbort);
+  const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch(url, { signal });
-    if (r.ok) return await r.text();
-  } catch (e) { if (e.name === 'AbortError') throw e; }
-  if (!proxyUrl) throw new Error('Direkter Abruf blockiert (CORS) – bitte CORS-Proxy in den Einstellungen eintragen.');
-  const r = await fetch(proxied(proxyUrl, url), { signal });
-  if (!r.ok) throw new Error(`Proxy antwortet mit ${r.status}`);
-  return r.text();
+    return await fetch(url, { signal: ctrl.signal, referrerPolicy: 'no-referrer', credentials: 'omit' });
+  } catch (e) {
+    if (ctrl.signal.aborted && !signal?.aborted) { const t = new Error('Zeitüberschreitung'); t.timeout = true; throw t; }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+function proxyChain(settings) {
+  const list = [];
+  if (settings.proxyUrl) list.push(settings.proxyUrl);
+  if (settings.publicProxy !== false) list.push(...PUBLIC_PROXIES);
+  return list;
+}
+
+const proxyLabel = p => hostOf(p.replace('{url}', '')) || 'Proxy';
+
+/**
+ * Holt eine URL als Text: optional direkt, danach nacheinander über die Proxy-Kette.
+ * Wirft den letzten Fehler (verständlich formuliert), wenn alles scheitert.
+ */
+async function fetchText(url, settings, signal, { direct = true, proxies = true } = {}) {
+  const attempts = [];
+  if (direct) attempts.push({ label: hostOf(url) || 'direkt', url });
+  if (proxies) for (const p of proxyChain(settings)) attempts.push({ label: `über ${proxyLabel(p)}`, url: proxied(p, url) });
+  if (!attempts.length) throw new Error('Direkter Abruf blockiert (CORS) – CORS-Proxy eintragen oder Ausweich-Proxy erlauben.');
+  let last;
+  for (const a of attempts) {
+    try {
+      const r = await fetchWithTimeout(a.url, signal);
+      if (!r.ok) { last = new Error(`${a.label}: HTTP ${r.status}`); continue; }
+      const text = await r.text();
+      if (text.trim()) return text;
+      last = new Error(`${a.label}: leere Antwort`);
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      last = new Error(friendlyError(e, a.label));
+      last.network = true;
+    }
+  }
+  throw last;
+}
+
+/** GDELT direkt, mit einem Wiederholversuch nach Netzwerkfehler (Rate-Limit-Antworten haben oft keinen CORS-Header). */
+function gdeltDirectFetcher(settings, signal) {
+  return async url => {
+    try { return await fetchText(url, settings, signal, { proxies: false }); }
+    catch (e) {
+      if (signal?.aborted || !e.network) throw e;
+      await sleep(GDELT_GAP_MS);
+      return fetchText(url, settings, signal, { proxies: false });
+    }
+  };
 }
 
 function googleNewsUrl(terms, domains, days, lang) {
@@ -160,58 +230,98 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   if (!active.length) return { items: [], errors: ['Keine Positionen mit Suchbegriff vorhanden.'] };
   if (!domains.length) return { items: [], errors: ['Keine Nachrichtenquelle aktiv.'] };
 
-  if (settings.provider === 'gnews') {
+  const provider = settings.provider || 'auto';
+  const termsOf = p => splitTerms(p.searchTerm || p.name);
+
+  // Google News: Begriffe mehrerer Positionen bündeln (weniger Anfragen über den Proxy).
+  const runGoogle = async () => {
+    const groups = chunk([...new Set(active.flatMap(termsOf))], 6);
     const tasks = [];
-    for (const p of active) {
-      for (const lang of langs) {
-        const ds = enabledSources.filter(s => s.lang === lang || s.lang === 'any' || !s.lang).map(s => s.domain);
-        if (!ds.length) continue;
+    for (const lang of langs) {
+      const ds = enabledSources.filter(s => s.lang === lang || s.lang === 'any' || !s.lang).map(s => s.domain);
+      if (!ds.length) continue;
+      for (const g of groups) {
         tasks.push(async () => {
-          const xml = await fetchText(googleNewsUrl(splitTerms(p.searchTerm || p.name), ds, days, lang), settings.proxyUrl, signal);
-          return parseFeed(xml).map(a => ({ ...a, lang, provider: 'Google News', hint: p.id }));
+          const xml = await fetchText(googleNewsUrl(g, ds, days, lang), settings, signal, { direct: false });
+          return parseFeed(xml).map(a => ({ ...a, lang, provider: 'Google News' }));
         });
       }
     }
+    if (!tasks.length) return 0;
+    if (!proxyChain(settings).length) {
+      errors.push('Google News benötigt einen CORS-Proxy – bitte unter „Mehr“ eintragen oder den Ausweich-Proxy erlauben.');
+      return 0;
+    }
     let done = 0;
-    const wrapped = tasks.map(t => async () => { const r = await t(); onProgress(++done, tasks.length); return r; });
-    const res = await pool(wrapped, 4);
-    res.forEach(r => (r instanceof Error ? errors.push(r.message) : raw.push(...r)));
-  } else {
-    // GDELT: Suchbegriffe bündeln, um das Anfrage-Limit einzuhalten.
-    const termGroups = chunk(active.flatMap(p => splitTerms(p.searchTerm || p.name).map(t => ({ t, p }))), settings.batchSize || 8);
+    const res = await pool(tasks.map(t => async () => { const r = await t(); onProgress(++done, tasks.length); return r; }), 2);
+    const failed = res.filter(r => r instanceof Error);
+    res.forEach(r => { if (!(r instanceof Error)) raw.push(...r); });
+    if (failed.length) errors.push(`Google News: ${failed.length} von ${tasks.length} Abrufen fehlgeschlagen (${failed[0].message}).`);
+    return tasks.length - failed.length;
+  };
+
+  // GDELT: Suchbegriffe bündeln, um das Anfrage-Limit einzuhalten.
+  const runGdelt = async () => {
+    const termGroups = chunk([...new Set(active.flatMap(termsOf))], settings.batchSize || 8);
     let useDomainFilter = domains.length <= 25;
+    let viaProxy = false;
+    let ok = 0;
     for (let i = 0; i < termGroups.length; i++) {
       if (signal?.aborted) break;
       onProgress(i, termGroups.length);
       if (i > 0) await sleep(GDELT_GAP_MS);
-      const terms = [...new Set(termGroups[i].map(x => x.t))];
+      const terms = termGroups[i];
+      const fetcher = viaProxy
+        ? url => fetchText(url, settings, signal, { direct: false })
+        : gdeltDirectFetcher(settings, signal);
       try {
-        raw.push(...await fetchGdelt(terms, useDomainFilter ? domains : [], days, signal));
+        raw.push(...await fetchGdelt(terms, useDomainFilter ? domains : [], days, signal, fetcher));
+        ok++;
       } catch (e) {
-        if (e.name === 'AbortError') break;
-        if (useDomainFilter) {
+        if (signal?.aborted) break;
+        if (e.network && ok === 0 && i === 0) {
+          // GDELT direkt nicht erreichbar
+          if (provider === 'auto') return { unreachable: e };
+          if (!viaProxy && proxyChain(settings).length) { viaProxy = true; i--; continue; }
+        }
+        if (e.gdeltText && useDomainFilter) {
           // Fallback: ohne Domain-Filter abfragen und lokal filtern
           useDomainFilter = false;
           await sleep(GDELT_GAP_MS);
-          try { raw.push(...await fetchGdelt(terms, [], days, signal)); continue; } catch (e2) { errors.push(e2.message); continue; }
+          try { raw.push(...await fetchGdelt(terms, [], days, signal, fetcher)); ok++; continue; }
+          catch (e2) { errors.push(e2.message); continue; }
         }
         errors.push(e.message);
       }
     }
     onProgress(termGroups.length, termGroups.length);
     raw = raw.filter(a => !a.lang || langs.includes(a.lang));
+    return { ok };
+  };
+
+  if (provider === 'gnews') {
+    await runGoogle();
+  } else {
+    const r = await runGdelt();
+    if (r?.unreachable) {
+      const why = r.unreachable.message.replace(/^[^:]+: /, '');
+      const okCount = await runGoogle();
+      errors.unshift(okCount
+        ? `GDELT ist gerade nicht erreichbar (${why}) – News wurden stattdessen über Google News geladen.`
+        : `Keine Verbindung zu den Nachrichtendiensten: GDELT ${why}, Google News über Proxy ebenfalls nicht erreichbar. Bitte später erneut versuchen oder einen eigenen Proxy eintragen (README).`);
+    }
   }
 
   // Eigene RSS-Feeds (Quellen mit Feed-URL)
   const feedSources = enabledSources.filter(s => s.rss);
   if (feedSources.length && (settings.useFeeds ?? true)) {
     const res = await pool(feedSources.map(s => async () => {
-      const xml = await fetchText(s.rss, settings.proxyUrl, signal);
+      const xml = await fetchText(s.rss, settings, signal);
       return parseFeed(xml, s.name).map(a => ({ ...a, domain: a.domain || s.domain, lang: s.lang, provider: 'RSS' }));
     }), 3);
     res.forEach((r, idx) => {
       // Ohne Proxy sind blockierte Feeds der Normalfall – dann nicht als Fehler melden.
-      if (r instanceof Error) { if (settings.proxyUrl || !feedSources[idx].builtin) errors.push(`${feedSources[idx].name}: ${r.message}`); }
+      if (r instanceof Error) { if (!feedSources[idx].builtin) errors.push(`${feedSources[idx].name}: ${r.message}`); }
       else raw.push(...r.map(a => ({ ...a, fromFeed: feedSources[idx].domain })));
     });
   }
@@ -226,7 +336,6 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
     if (!src || !a.title) continue;
     if (a.ts < cutoff) continue;
     let ids = matchPositions(a.title, positions, matcherCache);
-    if (!ids.length && a.hint && settings.provider === 'gnews') ids = [a.hint]; // Google hat im Volltext gefunden
     if (!ids.length) continue;
     const key = norm(a.title).slice(0, 90);
     const prev = byKey.get(key);

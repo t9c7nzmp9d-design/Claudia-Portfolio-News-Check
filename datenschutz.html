@@ -52,8 +52,10 @@
       Dabei wird technisch bedingt deine IP-Adresse an den jeweiligen Dienst übermittelt:</p>
     <ul>
       <li><strong>GDELT Project</strong> (Standard, <code>api.gdeltproject.org</code>, USA) – offene Nachrichtendatenbank.</li>
-      <li><strong>Google News RSS</strong> (nur wenn du es in den Einstellungen wählst) – Abruf über den von dir eingetragenen CORS-Proxy;
-        der Proxy-Betreiber (z. B. dein eigener Cloudflare Worker) sieht dann die Anfrage.</li>
+      <li><strong>Google News RSS</strong> (Google, USA) – wenn du es wählst oder wenn GDELT nicht erreichbar ist (Einstellung „Automatisch“).
+        Der Abruf läuft über einen CORS-Proxy: deinen eigenen (falls eingetragen) oder – sofern unter „Mehr“ erlaubt – einen
+        öffentlichen Ausweich-Proxy (<code>api.allorigins.win</code>, <code>api.codetabs.com</code>). Der Proxy-Betreiber sieht dabei
+        die Suchanfrage und deine IP-Adresse. Den Ausweich-Proxy kannst du jederzeit abschalten.</li>
       <li><strong>RSS-Feeds</strong> von Quellen, für die du einen Feed hinterlegt hast.</li>
     </ul>
     <p>Die Reihenfolge der Suchbegriffe kann Rückschlüsse auf deine größten Positionen zulassen. Wenn du das vermeiden möchtest,

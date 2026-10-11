@@ -7,7 +7,7 @@ import { fetchNews, rankNews, bucketLabel } from './news.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -281,6 +281,7 @@ async function renderSettings() {
   const s = state.settings;
   f.provider.value = s.provider;
   f.proxyUrl.value = s.proxyUrl;
+  f.publicProxy.checked = s.publicProxy !== false;
   f.lang_de.checked = s.languages.includes('de');
   f.lang_en.checked = s.languages.includes('en');
   f.timespanDays.value = String(s.timespanDays);
@@ -929,6 +930,7 @@ function bindEvents() {
     const s = state.settings;
     s.provider = f.provider.value;
     s.proxyUrl = f.proxyUrl.value.trim();
+    s.publicProxy = f.publicProxy.checked;
     s.languages = [f.lang_de.checked && 'de', f.lang_en.checked && 'en'].filter(Boolean);
     if (!s.languages.length) { s.languages = ['de']; f.lang_de.checked = true; }
     s.timespanDays = Number(f.timespanDays.value);
@@ -948,7 +950,7 @@ function bindEvents() {
       }
       s.notify = f.notify.checked;
     }
-    if (s.provider === 'gnews' && !s.proxyUrl) toast('Für Google News bitte einen CORS-Proxy eintragen (siehe README).', 6000);
+    if (s.provider === 'gnews' && !s.proxyUrl && !s.publicProxy) toast('Für Google News einen CORS-Proxy eintragen oder den Ausweich-Proxy erlauben.', 6000);
     save();
     scheduleAutoRefresh();
     renderSettings();
