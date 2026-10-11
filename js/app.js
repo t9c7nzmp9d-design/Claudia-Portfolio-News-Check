@@ -8,7 +8,7 @@ import { lookupSecurity } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;

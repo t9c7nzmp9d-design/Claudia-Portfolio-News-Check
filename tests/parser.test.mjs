@@ -165,3 +165,16 @@ test('Kopfzeile der Nutzerin (Tabulator-getrennt, Gewicht als Bruch)', () => {
   assert.equal(res.positions[0].value, 610.43);
   assert.equal(res.positions[1].symbol, 'BTC_to_EUR');
 });
+
+test('Textkodierungen: UTF-16 (Excel „Unicode-Text“, Numbers), mit und ohne BOM', async () => {
+  const { decodeText } = await import('../js/parser.js');
+  const txt = 'ISIN\tName\tWert (in €)\tGewicht (in %)\nUS0378331005\tApple\t610,43\t0,061043\n';
+  const le = Buffer.from(txt, 'utf16le');
+  const be = Buffer.from(le).swap16();
+  for (const bytes of [Buffer.concat([Buffer.from([0xFF, 0xFE]), le]), Buffer.concat([Buffer.from([0xFE, 0xFF]), be]), le, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(txt)])]) {
+    const text = decodeText(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    assert.equal(text, txt);
+    const res = rowsToPositions(parseCsv(text));
+    assert.deepEqual(res.mapping, { isin: 0, name: 1, value: 2, weight: 3 });
+  }
+});

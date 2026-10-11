@@ -333,10 +333,23 @@ export function recomputeWeights(positions) {
 
 // ---------- Datei lesen ----------
 
-function decodeText(buf) {
-  const utf8 = new TextDecoder('utf-8').decode(buf);
+/**
+ * Erkennt die Textkodierung: UTF-8 (mit/ohne BOM), UTF-16 LE/BE (Excel „Unicode-Text“, Numbers-Export
+ * mit UTF-16) und als Rückfall Windows-1252.
+ */
+export function decodeText(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  // UTF-16 ohne BOM: bei ASCII-Text ist jedes zweite Byte 0
+  const sample = b.subarray(0, Math.min(b.length, 2000));
+  let zeroEven = 0, zeroOdd = 0;
+  for (let i = 0; i < sample.length; i++) if (sample[i] === 0) (i % 2 ? zeroOdd++ : zeroEven++);
+  if (zeroOdd > sample.length / 4) return new TextDecoder('utf-16le').decode(b);
+  if (zeroEven > sample.length / 4) return new TextDecoder('utf-16be').decode(b);
+  const utf8 = new TextDecoder('utf-8').decode(b);
   if (!utf8.includes('�')) return utf8.replace(/^﻿/, '');
-  return new TextDecoder('windows-1252').decode(buf);
+  return new TextDecoder('windows-1252').decode(b);
 }
 
 export function parseCsv(text) {

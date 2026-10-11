@@ -12,7 +12,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | Bereich | Was die App kann |
 |---|---|
 | **Einrichtung** | Beim ersten Start: lokales Verzeichnis wählen *oder* Tabelle hochladen *oder* überspringen → Musterdepot |
-| **Import** | CSV (`;` `,` Tab), Excel (`.xlsx/.xls/.ods`), Apple Numbers (`.numbers`) |
+| **Import** | CSV (`;` `,` Tab; UTF-8, UTF-16, Windows-1252), Excel (`.xlsx/.xls/.ods`), Apple Numbers (`.numbers`) |
 | **Spalten korrigieren** | Im Import-Dialog jede Spalte mit Beispielwerten sehen und ihre Bedeutung per Auswahl ändern – die Positionen werden sofort neu eingelesen |
 | **Automatische Erkennung** | Kopfzeile auch unter Vorspann-Zeilen, Spaltenbedeutung (ISIN, WKN, Name, Wert, Gewicht, Stück, Kurs, Währung, Typ), gedrehte Tabellen (Felder in Zeilen), deutsches/englisches Zahlenformat, Gewicht als Bruch oder %, Summenzeilen werden ignoriert, mehrere Tabellenblätter → das passendste wird gewählt |
 | **Asset-Erkennung** | ISIN mit Prüfziffer, WKN (bei deutschen ISINs automatisch abgeleitet), Typ (Aktie, ETF, Fonds, ETC, Anleihe, Krypto, Rohstoff, Cash), Land; ISIN im Namen („Apple Inc. (US0378331005)“) |
