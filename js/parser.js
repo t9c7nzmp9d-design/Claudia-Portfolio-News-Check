@@ -195,6 +195,19 @@ function isTotalRow(row, mapping) {
   return TOTAL_ROW.test(name) || TOTAL_ROW.test(id) || (!name && !id && TOTAL_ROW.test(first));
 }
 
+/** Höchstzahl belegter Spalten einer Depot-Tabelle; mehr Spalten → Abbruch. */
+export const MAX_COLUMNS = 6;
+
+function countUsedColumns(headerCells, dataRows) {
+  const width = Math.max(headerCells.length, ...dataRows.map(r => r.length), 0);
+  let n = 0;
+  for (let c = 0; c < width; c++) {
+    const filled = v => v !== null && v !== undefined && String(v).trim() !== '';
+    if (filled(headerCells[c]) || dataRows.some(r => filled(r[c]))) n++;
+  }
+  return n;
+}
+
 /**
  * Wandelt eine Tabelle (Array von Zeilen) in Positionen um.
  * Gibt { positions, mapping, transposed, headerRow, warnings } zurück.
@@ -211,6 +224,14 @@ export function rowsToPositions(rawRows, forcedMapping = null) {
   const hasHeader = header.index >= 0;
   const headerCells = hasHeader ? rows[header.index] : [];
   const dataRows = hasHeader ? rows.slice(header.index + 1) : rows;
+  // Nur Tabellen mit höchstens MAX_COLUMNS belegten Spalten werden eingelesen
+  const used = countUsedColumns(headerCells, dataRows);
+  if (used > MAX_COLUMNS) {
+    return {
+      positions: [], mapping: {}, transposed, columns: [], score: 0, tooManyColumns: used,
+      warnings: [`Die Tabelle hat ${used} Spalten – erlaubt sind höchstens ${MAX_COLUMNS}. Bitte nur die nötigen Spalten behalten (z. B. ISIN oder WKN, Name, Wert, Gewicht) und erneut als CSV speichern.`]
+    };
+  }
   const { mapping, width } = mapColumns(headerCells, dataRows, forcedMapping);
   const warnings = [];
   // Spaltenübersicht für die manuelle Korrektur im Import-Dialog
@@ -378,28 +399,14 @@ export function parseCsv(text) {
   return rows;
 }
 
-/** Liest eine Datei und gibt Tabellenblätter als { name, rows }[] zurück. */
+/** Liest eine CSV-Datei (auch .txt/.tsv) und gibt sie als Tabellenblatt { name, rows }[] zurück. */
 export async function readTableFile(file) {
   const name = file.name || 'datei';
   const ext = name.split('.').pop().toLowerCase();
-  const buf = await file.arrayBuffer();
-  if (['csv', 'txt', 'tsv'].includes(ext)) {
-    return [{ name, rows: parseCsv(decodeText(buf)) }];
+  if (!['csv', 'txt', 'tsv'].includes(ext)) {
+    throw new Error(`„${name}“ ist keine CSV-Datei. Bitte die Tabelle als CSV speichern (Excel: „Speichern unter → CSV“, Numbers: „Ablage → Exportieren → CSV“).`);
   }
-  if (!window.XLSX) throw new Error('Excel-Bibliothek wurde nicht geladen.');
-  let wb;
-  try {
-    wb = window.XLSX.read(buf, { type: 'array', cellDates: true, raw: false });
-  } catch (e) {
-    if (ext === 'numbers') {
-      throw new Error('Diese Numbers-Datei konnte nicht gelesen werden. Bitte in Numbers über „Exportieren → Excel“ oder „CSV“ speichern und erneut wählen.');
-    }
-    throw e;
-  }
-  return wb.SheetNames.map(sn => ({
-    name: sn,
-    rows: window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: false })
-  }));
+  return [{ name, rows: parseCsv(decodeText(await file.arrayBuffer())) }];
 }
 
 /**
@@ -416,9 +423,10 @@ export function parseSheets(sheets, { sheet = null, mapping = null } = {}) {
   return { ...best, sheetCount: sheets.length, sheetNames: sheets.map(s => s.name) };
 }
 
-/** Liest eine Datei und wählt automatisch das beste Tabellenblatt. */
+/** Liest eine CSV-Datei ein. Bricht mit verständlicher Meldung ab, wenn sie mehr als MAX_COLUMNS Spalten hat. */
 export async function importFile(file) {
   const sheets = await readTableFile(file);
   const best = parseSheets(sheets);
+  if (best.tooManyColumns) throw new Error(best.warnings[0]);
   return { ...best, sheets, fileName: file.name, lastModified: file.lastModified || null };
 }
