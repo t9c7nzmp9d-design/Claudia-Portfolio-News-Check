@@ -90,3 +90,21 @@ test('Lokale Suchliste: nur Positionen ab der eingestellten Gewichtung, nichts v
   const all = await fetchNews({ positions, sources, settings: { languages: ['de'], timespanDays: 7, watchMinWeight: 0 } });
   assert.equal(all.items.length, 2);
 });
+
+test('Ausgeschaltete Typen werden gar nicht gesucht', async () => {
+  const { fetchNews } = await import('../js/news.js');
+  const seen = [];
+  globalThis.fetch = async url => { seen.push(String(url)); return new Response(JSON.stringify({ generatedAt: new Date().toISOString(), items: [
+    { t: 'MSCI World erreicht Rekord', u: 'https://x.de/1', d: 'x.de', s: 'X', l: 'de', ts: Date.now() },
+    { t: 'SAP hebt Prognose an', u: 'https://x.de/2', d: 'x.de', s: 'X', l: 'de', ts: Date.now() }
+  ] }), { status: 200, headers: { 'content-type': 'application/json' } }); };
+  const positions = [
+    { id: 'etf', name: 'iShares Core MSCI World', searchTerm: 'MSCI World', type: 'ETF', weight: 50 },
+    { id: 'sap', name: 'SAP', searchTerm: 'SAP', type: 'Aktie', weight: 50 }
+  ];
+  const sources = [{ name: 'X', domain: 'x.de', enabled: true, builtin: true, lang: 'de' }];
+  const res = await fetchNews({ positions, sources, settings: { newsOffTypes: ['ETF'], watchMinWeight: 0, timespanDays: 7 } });
+  const ids = res.items.flatMap(i => i.positionIds);
+  assert.ok(!ids.includes('etf'));
+  assert.ok(ids.includes('sap'));
+});

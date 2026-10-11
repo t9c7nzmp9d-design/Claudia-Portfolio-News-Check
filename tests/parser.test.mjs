@@ -228,3 +228,16 @@ test('Ausrichtung lässt sich erzwingen (Schalter im Import-Dialog)', () => {
   assert.equal(rowsToPositions(rows, null, 'cols').transposed, true);
   assert.equal(rowsToPositions(rows, null, 'rows').transposed, false);
 });
+
+test('Tausenderpunkte ohne Nachkommastellen (1.500 → 1500)', () => {
+  const res = rowsToPositions([
+    ['ISIN', 'Name', 'Stück', 'Wert (in €)'],
+    ['DE0007164600', 'SAP', '10', '1.500'],
+    ['DE0007236101', 'Siemens', '1.000', '12.000'],
+    ['US0378331005', 'Apple', '5', '900']
+  ]);
+  const byName = Object.fromEntries(res.positions.map(p => [p.name, p]));
+  assert.equal(byName.SAP.value, 1500);
+  assert.equal(byName.Siemens.value, 12000);
+  assert.equal(byName.Siemens.quantity, 1000);
+});

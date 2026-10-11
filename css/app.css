@@ -291,3 +291,9 @@ table.watch td { vertical-align: top; }
 .readme table tr > :first-child { min-width: 7.5em; }
 .readme table tr > :first-child { width: 30%; min-width: 6.5em; }
 .readme table { table-layout: fixed; width: 100%; } .readme table tr > :first-child { overflow-wrap: break-word; }
+.type-news { padding: 10px 14px; }
+.type-news p { margin: 0 0 6px; }
+.type-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.type-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); cursor: pointer; }
+.type-item.off { opacity: .55; }
+.type-head { list-style: none; margin: 12px 4px 2px; font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }

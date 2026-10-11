@@ -8,7 +8,7 @@ import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '2.0.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -93,8 +93,9 @@ function fmtPos(p, mode = displayMode()) {
 /** IDs der Positionen, für die News abgerufen werden (größte N mit aktiviertem Abruf). */
 function newsTopIds() {
   const min = Number(state.settings.watchMinWeight ?? 0);
+  const off = newsOffTypes();
   return new Set(state.portfolio.positions
-    .filter(p => p.newsEnabled !== false && p.type !== 'Cash' && (p.weight || 0) >= min)
+    .filter(p => p.newsEnabled !== false && p.type !== 'Cash' && !off.has(p.type || 'Sonstiges') && (p.weight || 0) >= min)
     .map(p => p.id));
 }
 
@@ -224,6 +225,7 @@ function renderLookup() {
       </div>
       ${top.has(p.id) ? '' : `<p class="muted small hit-note">${p.newsEnabled === false
         ? 'Für diese Position sind News abgeschaltet (Schalter unter „Depot“).'
+        : newsOffTypes().has(p.type || 'Sonstiges') ? `Keine News: News für Typ „${esc(p.type || 'Sonstiges')}“ sind ausgeschaltet (unter „Depot“).`
         : `Keine News: Gewichtung unter ${esc(String(state.settings.watchMinWeight))} % (unter „Mehr“ einstellbar).`}</p>`}
     </div>`;
   }).join('') + (hits.length > 5 ? `<p class="muted small">… und ${hits.length - 5} weitere</p>` : '');
@@ -247,17 +249,33 @@ function renderDepot() {
       : (a, b) => (b.weight || 0) - (a.weight || 0));
   const maxW = Math.max(1, ...pf.positions.map(p => p.weight || 0));
   const topIds = newsTopIds();
-  const onCount = pf.positions.filter(newsOn).length;
+  // News je Typ (z. B. ETF): Schalter; ausgeschaltete Typen werden gar nicht erst gesucht
+  const off = newsOffTypes();
+  const onCount = pf.positions.filter(p => newsOn(p) && !off.has(p.type || 'Sonstiges')).length;
   $('#newsCount').textContent = `News für ${onCount} von ${pf.positions.length} Positionen`;
-  $('#positionList').innerHTML = ps.map(p => `
+  const typeCounts = pf.positions.reduce((m, p) => { const t = p.type || 'Sonstiges'; m[t] = (m[t] || 0) + 1; return m; }, {});
+  const typeOrder = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]);
+  $('#typeNews').hidden = !typeOrder.length;
+  $('#typeNews').innerHTML = `<p class="small"><strong>News nach Typ</strong> – ausgeschaltete Typen werden nicht gesucht:</p>
+    <div class="type-list">${typeOrder.map(t => `<label class="type-item ${off.has(t) ? 'off' : ''}">
+      <span>${esc(t)} <span class="muted small">(${typeCounts[t]})</span></span>
+      <span class="switch news-switch"><input type="checkbox" role="switch" data-type="${esc(t)}" ${off.has(t) ? '' : 'checked'} aria-label="News für ${esc(t)}"><span class="slider"></span></span>
+    </label>`).join('')}</div>`;
+  let lastType = null;
+  $('#positionList').innerHTML = ps.map(p => {
+    const head = sort === 'type' && p.type !== lastType
+      ? `<li class="type-head">${esc(p.type || 'Sonstiges')} · ${typeCounts[p.type || 'Sonstiges']} Position(en)${off.has(p.type || 'Sonstiges') ? ' · <span class="warn-text">News aus</span>' : ''}</li>` : '';
+    lastType = p.type;
+    return head + `
     <li class="pos-row ${newsOn(p) && topIds.has(p.id) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
       <div class="pos-main">
         <span class="pos-name">${esc(p.name)}</span>
-        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? ` · unter ${esc(String(state.settings.watchMinWeight))} %` : ''}</span>
+        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? (off.has(p.type || 'Sonstiges') ? ` · News für ${esc(p.type || 'Sonstiges')} aus` : ` · unter ${esc(String(state.settings.watchMinWeight))} %`) : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
       <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span>${p.priceAt ? `<span class="muted tiny">${esc(fmtQuote(p))}</span>` : ''}</div>
-    </button>${newsSwitch(p.id, newsOn(p), p.name, 'data-news')}</li>`).join('') || '<li class="muted empty">Keine Positionen.</li>';
+    </button>${newsSwitch(p.id, newsOn(p), p.name, 'data-news')}</li>`;
+  }).join('') || '<li class="muted empty">Keine Positionen.</li>';
 }
 
 /** Schiebeschalter „News an/aus“ für eine Position. */
@@ -313,7 +331,7 @@ async function renderSettings() {
   f.notifyMinWeight.value = s.notifyMinWeight;
   f.watchMinWeight.value = s.watchMinWeight;
   renderWatchList();
-  f.minValue.value = s.minValue ?? 10;
+  f.maxImport.value = s.maxImport ?? 2000;
   let hint = '';
   if (!('Notification' in window)) {
     hint = isIOS && !isStandalone
@@ -430,21 +448,11 @@ function renderAll() {
 
 // ---------------------------------------------------------------- Import
 
-/** Eingelesene Position mit bekanntem Wert unter der Mindestgrenze (unter „Mehr“ einstellbar)? */
-function belowMin(p) {
-  const min = Number(state.settings.minValue) || 0;
-  return min > 0 && !p.manual && Number.isFinite(p.value) && p.value < min;
-}
+/** Höchstzahl einzulesender Positionen (die ersten der Tabelle, unter „Mehr“ einstellbar). */
+const maxImport = () => Math.max(1, Number(state.settings.maxImport) || 2000);
 
-/** Entfernt eingelesene Positionen unter der Mindestgrenze; gibt die entfernten zurück. */
-function removeBelowMin() {
-  const gone = state.portfolio.positions.filter(belowMin);
-  if (gone.length) {
-    state.portfolio.positions = state.portfolio.positions.filter(p => !belowMin(p));
-    recomputeWeights(state.portfolio.positions);
-  }
-  return gone;
-}
+/** Typen, für die keine News gesucht werden (unter „Depot“ je Typ abschaltbar). */
+const newsOffTypes = () => new Set(state.settings.newsOffTypes || []);
 
 function keyMatches(a, b) {
   return (a.isin && a.isin === b.isin) || (a.wkn && a.wkn === b.wkn) || (a.symbol && a.symbol === b.symbol)
@@ -453,7 +461,7 @@ function keyMatches(a, b) {
 
 function applyImport(res, mode, kind) {
   const old = state.portfolio.positions;
-  const incoming = res.positions.map(p => {
+  const incoming = res.positions.slice(0, maxImport()).map(p => {
     const o = old.find(x => keyMatches(x, p));
     if (!o) return { ...p, newsEnabled: p.newsChoice ?? p.type !== 'Cash' };
     return {
@@ -476,12 +484,10 @@ function applyImport(res, mode, kind) {
     result = [...incoming, ...old.filter(o => o.manual && !incoming.some(n => n.id === o.id))];
   }
   for (const r of result) delete r.newsChoice;
-  // Positionen unter der Mindestgrenze (Standard 10 €) nicht übernehmen bzw. entfernen
-  const dropped = result.filter(belowMin);
-  result = result.filter(p => !belowMin(p));
   recomputeWeights(result);
   state.portfolio.positions = result;
-  if (dropped.length) setTimeout(() => toast(`${dropped.length} Position${dropped.length === 1 ? '' : 'en'} unter ${state.settings.minValue} € nicht übernommen.`, 5000), 900);
+  const skipped = res.positions.length - Math.min(res.positions.length, maxImport());
+  if (skipped > 0) setTimeout(() => toast(`Die ersten ${maxImport()} Positionen übernommen, ${skipped} weitere übergangen.`, 5000), 900);
   state.portfolio.source = {
     kind, fileName: res.fileName, lastModified: res.lastModified, importedAt: Date.now(),
     sheet: res.sheet, sheetCount: res.sheetCount, mapping: res.mapping, transposed: res.transposed
@@ -505,9 +511,12 @@ function importReportHtml(res, { colsOpen = false } = {}) {
     p.newsChoice ??= o ? o.newsEnabled !== false : p.type !== 'Cash';
   }
   const hasMoney = res.positions.some(p => Number.isFinite(p.value));
-  const dropped = res.positions.filter(belowMin);
-  const rows = res.positions.map((p, i) => ({ p, i })).sort((a, b) => (b.p.weight || 0) - (a.p.weight || 0)).map(({ p, i }) =>
-    `<tr class="${belowMin(p) ? 'dropped' : ''}"><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}${belowMin(p) ? ` · <span class="warn-text">unter ${esc(String(state.settings.minValue))} € – wird nicht übernommen</span>` : ''}</div></td>
+  const limit = maxImport();
+  const skipped = Math.max(0, res.positions.length - limit);
+  const PREVIEW = 300; // bei großen Tabellen nur die größten Positionen anzeigen
+  const kept = res.positions.slice(0, limit).map((p, i) => ({ p, i })).sort((a, b) => (b.p.weight || 0) - (a.p.weight || 0));
+  const rows = kept.slice(0, PREVIEW).map(({ p, i }) =>
+    `<tr><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}</div></td>
       ${hasMoney ? `<td class="num">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '–')}</td>` : ''}
       <td class="num">${esc(fmtPercent(p.weight))}</td>
       <td class="num">${newsSwitch(String(i), p.newsChoice, p.name, 'data-imp')}</td></tr>`).join('');
@@ -527,7 +536,7 @@ function importReportHtml(res, { colsOpen = false } = {}) {
     : '';
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
       <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.</p>
-    ${dropped.length ? `<p class="small warn-text">${dropped.length} Position${dropped.length === 1 ? '' : 'en'} mit einem Wert unter ${esc(String(state.settings.minValue))} € ${dropped.length === 1 ? 'wird' : 'werden'} nicht übernommen (unter „Mehr“ einstellbar): ${esc(dropped.map(p => p.name).join(', '))}.</p>` : ''}
+    ${skipped ? `<p class="small warn-text">Die Tabelle enthält ${res.positions.length} Positionen – übernommen werden die ersten ${limit}, ${skipped} weitere werden übergangen (unter „Mehr“ einstellbar).</p>` : ''}
     ${res.autoTransposed || res.orientationCorrected ? `<p class="small ok-text">✓ Plausibilitätsprüfung: ${res.transposed
       ? 'Die Tabelle hat Felder in Zeilen und Positionen in Spalten – Zeilen und Spalten wurden automatisch getauscht.'
       : 'Zeilen und Spalten sind richtig ausgerichtet – eine Drehung wurde geprüft und verworfen.'}</p>` : ''}
@@ -545,6 +554,7 @@ function importReportHtml(res, { colsOpen = false } = {}) {
       <span class="small">News: <button type="button" class="link-btn small" data-imp-all="1">alle an</button> · <button type="button" class="link-btn small" data-imp-all="0">alle aus</button></span>
     </div>
     <div class="imp-scroll"><table class="mini"><thead><tr><th>Position</th>${hasMoney ? '<th class="num">Wert</th>' : ''}<th class="num">Anteil</th><th class="num">News</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${kept.length > PREVIEW ? `<p class="muted small">Angezeigt: die ${PREVIEW} größten von ${kept.length} Positionen.</p>` : ''}
     <p id="impCount" class="muted small"></p>` : '<p id="impCount" class="warn-text">Noch keine Positionen erkannt – bitte oben mindestens die Spalte „Name“ oder „ISIN / Kennung“ zuordnen.</p>'}`;
 }
 
@@ -574,7 +584,7 @@ function updateImpCount() {
   const ps = pendingImport?.res.positions || [];
   const okBtn = $('#importDlg button[value=ok]');
   if (okBtn) okBtn.disabled = !ps.length;
-  const kept = ps.filter(p => !belowMin(p));
+  const kept = ps.slice(0, maxImport());
   if (okBtn) okBtn.disabled = !kept.length;
   if (ps.length) $('#impCount').textContent = `News für ${kept.filter(p => p.newsChoice).length} von ${kept.length} übernommenen Positionen`;
 }
@@ -795,7 +805,8 @@ let quoteRun = null;
 /** Holt einmalig Kurse für Positionen ohne Kurs (z. B. nach dem Einlesen). Läuft im Hintergrund. */
 function fetchMissingQuotes() {
   if (quoteRun) return quoteRun;
-  const todo = state.portfolio.positions.filter(p => !p.priceAt && !p.priceTried && p.type !== 'Cash');
+  const todo = state.portfolio.positions.filter(p => !p.priceAt && !p.priceTried && p.type !== 'Cash')
+    .sort((a, b) => (b.weight || 0) - (a.weight || 0)).slice(0, 300); // große Depots: die 300 größten
   if (!todo.length) return null;
   let done = 0, ok = 0;
   const status = () => { $('#quoteStatus').textContent = done < todo.length ? `Kurse werden geladen … (${done}/${todo.length})` : ''; };
@@ -812,11 +823,10 @@ function fetchMissingQuotes() {
       }
     }));
     recomputeWeights(state.portfolio.positions);
-    const gone = removeBelowMin(); // Werte aus Stückzahl × Kurs können unter der Grenze liegen
     save(true);
     renderAll();
     if (!$('#view-depot').hidden) renderDepot();
-    toast(`${ok} von ${todo.length} Kursen geladen.${gone.length ? ` ${gone.length} Position(en) unter ${state.settings.minValue} € entfernt.` : ''}`);
+    toast(`${ok} von ${todo.length} Kursen geladen.`);
   })().finally(() => { quoteRun = null; status(); });
   return quoteRun;
 }
@@ -1169,6 +1179,18 @@ function bindEvents() {
   $('#exportPosBtn').addEventListener('click', exportPositions);
 
   $('#depotFilter').addEventListener('input', renderDepot);
+  $('#typeNews').addEventListener('change', e => {
+    const t = e.target.dataset.type;
+    if (!t) return;
+    const set = newsOffTypes();
+    if (e.target.checked) set.delete(t); else set.add(t);
+    state.settings.newsOffTypes = [...set];
+    save(true);
+    renderAll();
+    renderDepot();
+    if (e.target.checked) refreshNews({ silent: true }); // wieder eingeschaltet → neu zuordnen
+    toast(e.target.checked ? `News für ${t} eingeschaltet.` : `News für ${t} ausgeblendet – werden nicht mehr gesucht.`);
+  });
   $('#positionList').addEventListener('change', e => {
     const id = e.target.dataset.news;
     if (id) setNewsEnabled([id], e.target.checked);
@@ -1283,17 +1305,7 @@ function bindEvents() {
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
     s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
-    const oldMinValue = Number(s.minValue) || 0;
-    s.minValue = Math.max(0, Number(String(f.minValue.value).replace(',', '.')) || 0);
-    if (s.minValue > oldMinValue) {
-      const affected = state.portfolio.positions.filter(belowMin);
-      if (affected.length && confirm(`${affected.length} eingelesene Position(en) liegen unter ${s.minValue} €:\n${affected.map(p => p.name).join(', ')}\n\nJetzt entfernen?`)) {
-        removeBelowMin();
-        save(true);
-        renderAll();
-        toast(`${affected.length} Position(en) entfernt.`);
-      }
-    }
+    s.maxImport = Math.max(1, Math.round(Number(f.maxImport.value) || 2000));
     const oldMin = s.watchMinWeight;
     s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
     if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste

@@ -15,7 +15,8 @@ export function defaultSettings() {
     displayMode: 'percent',   // 'percent' | 'value'
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
-    minValue: 10,             // eingelesene Positionen unter diesem Wert (€) nicht übernehmen (0 = aus)
+    maxImport: 2000,          // höchstens so viele Positionen einlesen (die ersten der Tabelle)
+    newsOffTypes: [],         // für diese Typen (z. B. 'ETF') keine News suchen
     watchMinWeight: 2,        // gezielte News-Suche (lokal) für Positionen ab dieser Gewichtung (%)
     autoRefreshMin: 30,       // automatische Aktualisierung bei geöffneter App (0 = aus)
     autoBackup: true,         // Sicherung in gewähltes Verzeichnis (sofern unterstützt)
@@ -59,6 +60,7 @@ export function migrate(s) {
   // v4: Live-Suche (GDELT/Google/Proxys) entfällt – alte Einstellungen entfernen
   for (const k of ['provider', 'poolUrl', 'proxyUrl', 'publicProxy', 'maxPositions', 'useFeeds', 'batchSize', 'githubToken']) delete out.settings[k];
   delete out.watchSync;
+  delete out.settings.minValue; // ersetzt durch maxImport
   out.schema = SCHEMA_VERSION;
   return out;
 }
@@ -109,7 +111,8 @@ export function flushSave() {
 /** Kopie aus IndexedDB laden, falls localStorage leer ist (z. B. vom System geleert). */
 export async function loadBackupCopy() {
   try {
-    const json = await idbGet('state');
+    // Auf manchen iPhones antwortet IndexedDB beim Start nicht – nie länger als 1,5 s warten
+    const json = await Promise.race([idbGet('state'), new Promise(r => setTimeout(() => r(null), 1500))]);
     return json ? migrate(JSON.parse(json)) : null;
   } catch {
     return null;
