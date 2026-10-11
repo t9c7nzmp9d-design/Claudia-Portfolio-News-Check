@@ -19,6 +19,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **News** | Nur Artikel aus aktivierten Quellen, deren Überschrift die Position nennt; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
+| **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
 | **Datensicherung** | JSON-Sicherung speichern/laden (iPhone: Teilen → „In Dateien sichern“), automatische Sicherung ins verbundene Verzeichnis, Export als Excel/CSV |
@@ -48,9 +49,13 @@ Spaltennamen sind egal.
 
 | Dienst | Einrichtung | Bemerkung |
 |---|---|---|
-| **GDELT** (Standard) | keine | Kostenlos, ohne Schlüssel, direkt aus dem Browser. Max. 1 Anfrage / 5 s → Positionen werden gebündelt (ca. 3 Anfragen für 20 Positionen). Paywall-Medien (FT, WSJ, Bloomberg) teils lückenhaft erfasst. |
-| **Google News RSS** | CORS-Proxy nötig | Genauere Treffer und mehr Quellen. |
-| **RSS-Feeds** je Quelle | meist CORS-Proxy nötig | z. B. tagesschau.de Wirtschaft |
+| **Automatisch** (Standard) | keine | Erst GDELT direkt; ist GDELT nicht erreichbar (Safari meldet dann z. B. „Load failed“), werden die News automatisch über Google News geladen. |
+| **GDELT** | keine | Kostenlos, ohne Schlüssel. Max. 1 Anfrage / 5 s → Begriffe gebündelt. Wird je nach Browser/Netz wegen fehlender CORS-Freigabe oder Überlastung blockiert. Paywall-Medien teils lückenhaft. |
+| **Google News RSS** | Proxy | Genauere Treffer, mehr Quellen. Läuft über deinen eigenen CORS-Proxy oder – wenn erlaubt – über einen öffentlichen Ausweich-Proxy (allorigins.win, codetabs.com). |
+| **RSS-Feeds** je Quelle | meist Proxy | z. B. tagesschau.de Wirtschaft |
+
+Öffentliche Ausweich-Proxys sehen nur die Suchbegriffe (z. B. „SAP“), nicht Werte oder Gewichtungen. Sie sind kostenlos, aber
+nicht immer zuverlässig. Für mehr Privatsphäre und Stabilität: eigenen Proxy einrichten und den Ausweich-Proxy unter „Mehr“ abschalten.
 
 ### Optional: eigener CORS-Proxy (kostenlos, ~5 Min.)
 
@@ -62,12 +67,12 @@ Der Proxy lässt nur deine App-Herkunft und freigegebene Hosts zu (kein offener 
 
 ## Veröffentlichen auf GitHub Pages
 
-Das Repository enthält einen Workflow (`.github/workflows/pages.yml`), der Tests ausführt und die Seite veröffentlicht:
-
 1. Repository auf **Public** stellen (Settings → General → Danger Zone).
-2. **Settings → Pages → Source: „GitHub Actions“**.
-3. Auf `main` pushen (oder Workflow manuell starten). URL: `https://<benutzer>.github.io/<repo>/`.
+2. **Settings → Pages → Build and deployment → Source: „Deploy from a branch“**, Branch **`main`**, Ordner **`/ (root)`** → *Save*.
+3. Nach ein bis zwei Minuten ist die App erreichbar unter `https://<benutzer>.github.io/<repo>/`.
 4. In `datenschutz.html` Name/Kontakt eintragen.
+
+Der Workflow `.github/workflows/tests.yml` führt bei jedem Push und Pull Request die Tests aus.
 
 ## Entwicklung
 
