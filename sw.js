@@ -1,6 +1,6 @@
 // Service Worker: App offline verfügbar machen und Klicks auf Benachrichtigungen behandeln.
 // Bei Änderungen an App-Dateien die Versionsnummer erhöhen.
-const CACHE = 'depot-news-v2.0.2';
+const CACHE = 'depot-news-v2.0.3';
 const SHELL = [
   './', 'index.html', 'datenschutz.html', 'README.md', 'manifest.webmanifest',
   'css/app.css',
@@ -27,7 +27,8 @@ self.addEventListener('fetch', e => {
   // Nur eigene Dateien cachen; Nachrichtendienste immer live abrufen.
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // am Browser-Cache vorbei beim Server nachfragen (GitHub Pages cacht sonst 10 Minuten)
+    fetch(new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }))
       .then(res => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
         return res;

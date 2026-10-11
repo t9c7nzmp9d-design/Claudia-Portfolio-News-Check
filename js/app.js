@@ -8,7 +8,8 @@ import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.0.2';
+const APP_VERSION = '2.0.3';
+let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -1388,7 +1389,17 @@ async function init() {
   window.addEventListener('pagehide', flushSave);
   renderAll();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+    // Updates: beim Zurückkehren in die App nach neuer Version fragen und danach neu laden
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(e => console.warn('SW', e));
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || newVersionShown) return;
+      newVersionShown = true;
+      flushSave();
+      showBanner('Eine neue Version der App ist da.', [{ label: 'Jetzt laden', primary: true, onClick: () => location.reload() }, { label: 'Später' }]);
+    });
   }
   if (!state.onboarded) {
     openOnboarding();
