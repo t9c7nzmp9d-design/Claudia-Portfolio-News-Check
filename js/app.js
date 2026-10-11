@@ -396,6 +396,8 @@ function importReportHtml(res, { colsOpen = false } = {}) {
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
       <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.${res.transposed ? ' <em>Tabelle war gedreht – automatisch umgestellt.</em>' : ''}</p>
     ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}
+    ${/\.numbers$/i.test(res.fileName) ? `<p class="small muted">Apple-Numbers-Dateien werden nicht immer vollständig gelesen. Sieht unten etwas falsch aus:
+      in Numbers <em>Ablage → Exportieren → CSV</em> (oder Excel) wählen und diese Datei einlesen.</p>` : ''}
     <details class="advanced" ${colsOpen || missingName || missingAmount || !res.positions.length ? 'open' : ''}>
       <summary>Spalten prüfen und korrigieren</summary>
       <p class="muted small">Falls eine Spalte falsch gedeutet wurde, hier die richtige Bedeutung wählen – die Positionen werden sofort neu eingelesen.</p>

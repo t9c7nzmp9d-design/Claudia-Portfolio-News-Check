@@ -153,3 +153,15 @@ test('Manuelle Spaltenzuordnung überschreibt die Automatik', () => {
   assert.equal(res.positions[1].weight, 75);
   assert.ok(res.columns.length === 3 && res.columns[2].field === 'value');
 });
+
+test('Kopfzeile der Nutzerin (Tabulator-getrennt, Gewicht als Bruch)', () => {
+  const res = rowsToPositions(parseCsv(
+    'ISIN\tName\tWert (in €)\tGewicht (in %)\n' +
+    'US0378331005\tApple\t610,43\t0,061043\n' +
+    'BTC_to_EUR\tBitcoin\t322,74\t0,032274\n' +
+    '\tSumme\t933,17\t0,093317\n'));
+  assert.deepEqual(res.mapping, { isin: 0, name: 1, value: 2, weight: 3 });
+  assert.deepEqual(names(res), ['Apple', 'Bitcoin']);
+  assert.equal(res.positions[0].value, 610.43);
+  assert.equal(res.positions[1].symbol, 'BTC_to_EUR');
+});
