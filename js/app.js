@@ -6,9 +6,9 @@ import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, s
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
 import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
-import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
+import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -325,6 +325,14 @@ async function renderSettings() {
   }
   $('#notifyHint').textContent = hint;
   $('#backupInfo').textContent = state.lastBackupAt ? `Letzte Sicherung: ${fmtDateTime(state.lastBackupAt)}` : 'Noch keine Sicherung erstellt.';
+  const where = isIOS ? (isStandalone ? 'in der Home-Bildschirm-App' : 'in Safari') : 'in diesem Browser';
+  $('#storageInfo').innerHTML = (saveStatus.ok
+    ? `✓ Depot gespeichert ${where}: <strong>${state.portfolio.positions.length} Positionen</strong>${state.savedAt ? `, zuletzt ${esc(fmtDateTime(state.savedAt))}` : ''}.`
+    : `<span class="warn-text">⚠ Speichern fehlgeschlagen (${esc(saveStatus.error)}). Bitte Sicherung speichern.</span>`)
+    + (state.persisted === true ? ' Dauerhaft gespeichert.' : '')
+    + (isIOS && !isStandalone
+      ? '<br><span class="warn-text">Hinweis: Safari und die Home-Bildschirm-App haben getrennte Speicher, und Safari löscht Daten nach 7 Tagen ohne Nutzung. Empfehlung: App über „Teilen → Zum Home-Bildschirm“ installieren und nur von dort öffnen.</span>'
+      : '');
   $('#autoBackupChk').checked = s.autoBackup;
   $('#dirInfo').textContent = !supportsDir
     ? 'Dieser Browser kann kein Verzeichnis dauerhaft verbinden (z. B. Safari auf iPhone). Sicherungen werden über „Teilen → In Dateien sichern“ oder als Download gespeichert.'
@@ -484,6 +492,7 @@ function applyImport(res, mode, kind) {
   renderAll();
   autoBackup();
   setTimeout(fetchMissingQuotes, 400); // einmalig Kurse für neue Positionen
+  requestPersistence().then(p => { state.persisted = p; });
 }
 
 const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
@@ -1056,7 +1065,7 @@ function askForNewVersion() {
   if (!state.settings.askOnStart || !src || src.kind === 'dir') return;
   const text = src.kind === 'sample'
     ? 'Du nutzt das <strong>Musterdepot</strong>. Eigene Depot-Tabelle einlesen?'
-    : `Gibt es eine neue Version von „${esc(src.fileName)}“? (zuletzt eingelesen ${esc(timeAgo(src.importedAt))})`;
+    : `Gespeichert: <strong>${state.portfolio.positions.length} Positionen</strong> aus „${esc(src.fileName)}“ (eingelesen ${esc(timeAgo(src.importedAt))}). Neue Version einlesen?`;
   showBanner(text, [
     { label: 'Datei wählen', primary: true, onClick: () => pickFile('import') },
     ...(supportsDir ? [{ label: 'Verzeichnis', onClick: chooseDirectory }] : []),
@@ -1072,6 +1081,7 @@ function bindEvents() {
   // Onboarding
   $('#obDirBtn').addEventListener('click', async () => { if (await chooseDirectory()) $('#onboardDlg').close(); });
   $('#obFileBtn').addEventListener('click', () => { $('#onboardDlg').close(); pickFile('import'); });
+  $('#obRestoreBtn').addEventListener('click', () => { $('#onboardDlg').close(); $('#backupInput').value = ''; $('#backupInput').click(); });
   $('#obSkipBtn').addEventListener('click', async () => {
     $('#onboardDlg').close();
     await loadSample();
@@ -1100,6 +1110,7 @@ function bindEvents() {
   });
   $('#fileInput').addEventListener('cancel', () => { if (!state.onboarded) openOnboarding(); });
   $('#backupInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) restoreFromFile(f); });
+  $('#backupInput').addEventListener('cancel', () => { if (!state.onboarded) openOnboarding(); });
 
   // Lookup + Umschalter
   $('#lookupInput').addEventListener('input', renderLookup);
@@ -1335,6 +1346,18 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  // Fehlt der Zustand in localStorage (z. B. vom System geleert), aus der IndexedDB-Kopie wiederherstellen
+  if (!state.onboarded || !state.portfolio.positions.length) {
+    const copy = await loadBackupCopy();
+    if (copy?.onboarded && copy.portfolio.positions.length) {
+      state = copy;
+      saveState(state, true);
+      setTimeout(() => toast(`Depot wiederhergestellt: ${state.portfolio.positions.length} Positionen.`), 500);
+    }
+  }
+  // Beim Wechsel in den Hintergrund / Schließen sofort speichern
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+  window.addEventListener('pagehide', flushSave);
   renderAll();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
@@ -1343,6 +1366,7 @@ async function init() {
     openOnboarding();
     return;
   }
+  requestPersistence().then(p => { state.persisted = p; });
   const hasDir = supportsDir && await checkDirectoryOnStart();
   if (!hasDir) askForNewVersion();
   scheduleAutoRefresh();

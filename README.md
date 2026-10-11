@@ -37,6 +37,12 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 2. **Teilen → Zum Home-Bildschirm** – dann läuft sie wie eine App (Vollbild, Benachrichtigungen ab iOS 16.4).
 3. Beim ersten Start „Tabelle hochladen“ → Datei aus *Dateien* / iCloud Drive wählen, oder überspringen.
 
+> **Wichtig:** Safari und die Home-Bildschirm-App haben **getrennte Speicher**. Ein in Safari eingelesenes Depot ist in der
+> Home-Bildschirm-App nicht vorhanden (und umgekehrt). Außerdem löscht Safari Webseiten-Daten nach 7 Tagen ohne Nutzung.
+> Deshalb die App installieren und **nur über das Home-Symbol** öffnen. Unter „Mehr → Datensicherung“ zeigt die App, wo und
+> wann das Depot zuletzt gespeichert wurde. Regelmäßig „Sicherung speichern“ – eine Sicherung lässt sich auch direkt bei der
+> Einrichtung wieder laden.
+
 **Hinweis zu „lokales Verzeichnis“:** Safari (iPhone/iPad/Mac) erlaubt Webseiten keinen dauerhaften Verzeichniszugriff.
 Dort fragt die App beim Start nach einer neuen Version der Datei („Gibt es eine neue Version …?“) und du wählst sie mit einem Tipp.
 In Chrome/Edge am Desktop kann ein Verzeichnis verbunden werden: Die App liest dann beim Start **selbstständig die neueste
