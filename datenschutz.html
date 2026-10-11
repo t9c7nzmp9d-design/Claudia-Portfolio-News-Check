@@ -46,21 +46,29 @@
       <li>Über „Mehr → Alle Daten löschen“ entfernst du sämtliche lokal gespeicherten Daten.</li>
     </ul>
 
-    <h2>4. Abruf von Nachrichten (Drittanbieter)</h2>
-    <p>Um News zu finden, sendet die App <strong>nur Suchbegriffe</strong> (z. B. „SAP“, „MSCI World“) und die Liste der
-      aktivierten Nachrichtenquellen an einen Nachrichtendienst – <strong>keine Werte, Stückzahlen, Gewichtungen oder ISINs</strong>.
-      Dabei wird technisch bedingt deine IP-Adresse an den jeweiligen Dienst übermittelt:</p>
+    <h2>4. Abruf von Nachrichten</h2>
+    <p><strong>Standard: News-Sammlung.</strong> Eine GitHub Action dieses Projekts ruft alle 30 Minuten die öffentlichen
+      Schlagzeilen der Quellen ab (RSS-Feeds und Google News) und legt sie als Datei <code>news.json</code> im Repository ab.
+      Die App lädt nur diese Datei von <code>raw.githubusercontent.com</code> (GitHub, USA) und sucht darin
+      <strong>auf deinem Gerät</strong> nach deinen Positionen. Dabei werden weder Suchbegriffe noch Depotdaten übertragen –
+      GitHub erhält lediglich technisch notwendige Daten wie deine IP-Adresse.</p>
+    <p>Die Begriffe in <code>news/watchlist.txt</code> sind öffentlich. Trägst du dort eigene Suchbegriffe ein (Depot →
+      „Suchbegriffe für News-Sammlung“), sind diese für jeden sichtbar – Werte und Gewichtungen jedoch nie.</p>
+    <p><strong>Optional: Live-Suche</strong> (nur wenn du sie unter „Mehr“ wählst). Dann sendet die App Suchbegriffe
+      (z. B. „SAP“) direkt an einen Nachrichtendienst; dabei wird deine IP-Adresse übermittelt:</p>
     <ul>
-      <li><strong>GDELT Project</strong> (Standard, <code>api.gdeltproject.org</code>, USA) – offene Nachrichtendatenbank.</li>
-      <li><strong>Google News RSS</strong> (Google, USA) – wenn du es wählst oder wenn GDELT nicht erreichbar ist (Einstellung „Automatisch“).
-        Der Abruf läuft über einen CORS-Proxy: deinen eigenen (falls eingetragen) oder – sofern unter „Mehr“ erlaubt – einen
-        öffentlichen Ausweich-Proxy (<code>api.allorigins.win</code>, <code>api.codetabs.com</code>). Der Proxy-Betreiber sieht dabei
-        die Suchanfrage und deine IP-Adresse. Den Ausweich-Proxy kannst du jederzeit abschalten.</li>
-      <li><strong>RSS-Feeds</strong> von Quellen, für die du einen Feed hinterlegt hast.</li>
+      <li><strong>GDELT Project</strong> (<code>api.gdeltproject.org</code>, USA) – offene Nachrichtendatenbank.</li>
+      <li><strong>Google News RSS</strong> (Google, USA) über einen CORS-Proxy: deinen eigenen (falls eingetragen) oder – sofern
+        erlaubt – einen öffentlichen Ausweich-Proxy (<code>api.allorigins.win</code>, <code>api.codetabs.com</code>), der die
+        Suchanfrage und deine IP-Adresse sieht.</li>
+      <li><strong>RSS-Feeds</strong> eigener Quellen, für die du einen Feed hinterlegt hast.</li>
     </ul>
-    <p>Die Reihenfolge der Suchbegriffe kann Rückschlüsse auf deine größten Positionen zulassen. Wenn du das vermeiden möchtest,
-      deaktiviere einzelne Positionen für den News-Abruf oder reduziere die Anzahl der abgefragten Positionen.
-      Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO – der Abruf erfolgt nur auf deine Aktion bzw. gemäß deinen Einstellungen.</p>
+
+    <h2>4a. Online-Suche beim Anlegen einer Position</h2>
+    <p>Bei „+ Position“ ergänzt die App fehlende Angaben, indem sie den eingegebenen <strong>Namen, die ISIN oder WKN</strong>
+      an <strong>Wikidata</strong> (<code>query.wikidata.org</code>, Wikimedia Foundation, USA) und <strong>OpenFIGI</strong>
+      (<code>api.openfigi.com</code>, Bloomberg L.P., USA) sendet. Es wird nur dieser eine Suchbegriff übertragen,
+      keine Werte und kein übriges Depot. Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO – die Suche erfolgt nur auf deine Eingabe.</p>
 
     <h2>5. Externe Links</h2>
     <p>Beim Öffnen eines Artikels verlässt du die App und rufst die Website des jeweiligen Mediums auf; dort gelten deren
