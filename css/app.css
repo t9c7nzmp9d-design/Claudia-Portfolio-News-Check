@@ -254,3 +254,16 @@ details summary { cursor: pointer; }
 .imp-scroll td.num { vertical-align: middle; }
 table.mini .num { white-space: nowrap; }
 .news-bulk > span:last-child, .imp-head > span { white-space: nowrap; }
+details.advanced { margin: 6px 0 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
+details.advanced summary { font-weight: 600; font-size: .92rem; }
+.lookup-online { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 6px; }
+#onlineCandidates { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.cand {
+  text-align: left; font: inherit; color: var(--text); background: var(--surface-2); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+}
+.cand.picked { border-color: var(--accent); background: var(--accent-soft); }
+.cand b { display: block; }
+.cand .muted { display: block; }
+textarea.terms { width: 100%; min-height: 160px; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.meta .also { color: var(--muted); }

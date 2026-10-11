@@ -76,6 +76,7 @@
           <button id="importBtn" class="btn primary" type="button">Datei einlesen</button>
           <button id="addPosBtn" class="btn" type="button">+ Position</button>
           <button id="exportPosBtn" class="btn" type="button">Exportieren</button>
+          <button id="copyTermsBtn" class="btn ghost" type="button">Suchbegriffe für News-Sammlung</button>
         </div>
       </div>
       <div class="row-between list-head">
@@ -122,17 +123,24 @@
         <h2>News-Einstellungen</h2>
         <label>Nachrichtendienst
           <select name="provider">
-            <option value="auto">Automatisch (GDELT, sonst Google News) – empfohlen</option>
-            <option value="gdelt">Nur GDELT</option>
-            <option value="gnews">Nur Google News RSS (über Proxy)</option>
+            <option value="pool">News-Sammlung (empfohlen)</option>
+            <option value="auto">Live-Suche: GDELT, sonst Google News</option>
+            <option value="gdelt">Live-Suche: nur GDELT</option>
+            <option value="gnews">Live-Suche: nur Google News (über Proxy)</option>
           </select>
         </label>
-        <label>CORS-Proxy (optional)
-          <input name="proxyUrl" placeholder="https://mein-proxy.workers.dev/?url={url}" inputmode="url" autocapitalize="off">
-        </label>
-        <label class="check"><input type="checkbox" name="publicProxy"> Öffentlichen Ausweich-Proxy erlauben, wenn der direkte Abruf blockiert ist</label>
-        <p class="muted small">Ausweich-Proxys (allorigins.win, codetabs.com) sehen nur die Suchbegriffe, nicht dein Depot.
-          Mehr Privatsphäre: eigenen Proxy eintragen (siehe README).</p>
+        <p id="poolHint" class="muted small"></p>
+        <details class="advanced">
+          <summary>Erweitert (nur für die Live-Suche)</summary>
+          <label>CORS-Proxy (optional)
+            <input name="proxyUrl" placeholder="https://mein-proxy.workers.dev/?url={url}" inputmode="url" autocapitalize="off">
+          </label>
+          <label class="check"><input type="checkbox" name="publicProxy"> Öffentlichen Ausweich-Proxy erlauben, wenn der direkte Abruf blockiert ist</label>
+          <p class="muted small">Ausweich-Proxys (allorigins.win, codetabs.com) sehen nur die Suchbegriffe, nicht dein Depot.</p>
+          <label>Live-Suche für die größten … Positionen
+            <input name="maxPositions" type="number" min="1" max="100" step="1">
+          </label>
+        </details>
         <fieldset class="inline">
           <legend>Sprachen</legend>
           <label class="check"><input type="checkbox" name="lang_de"> Deutsch</label>
@@ -143,9 +151,6 @@
             <option value="1">24 Stunden</option><option value="3">3 Tage</option><option value="7">7 Tage</option>
             <option value="14">14 Tage</option><option value="30">30 Tage</option>
           </select>
-        </label>
-        <label>News für die größten … Positionen
-          <input name="maxPositions" type="number" min="1" max="100" step="1">
         </label>
         <label>Zeitfenster für die Sortierung
           <select name="bucket">
@@ -258,11 +263,17 @@
   <dialog id="posDlg" class="dlg">
     <form id="posForm" method="dialog" class="dlg-body form">
       <h2 id="posDlgTitle">Position</h2>
-      <label>Name <input name="name" required></label>
+      <p class="muted small" id="lookupIntro">Name, ISIN <em>oder</em> WKN eingeben – die übrigen Felder werden per Online-Suche ergänzt.</p>
+      <label>Name <input name="name" required autocomplete="off"></label>
       <div class="grid2">
-        <label>ISIN <input name="isin" autocapitalize="characters" maxlength="12"></label>
-        <label>WKN <input name="wkn" autocapitalize="characters" maxlength="6"></label>
+        <label>ISIN <input name="isin" autocapitalize="characters" maxlength="12" autocomplete="off"></label>
+        <label>WKN <input name="wkn" autocapitalize="characters" maxlength="6" autocomplete="off"></label>
       </div>
+      <div class="lookup-online">
+        <button id="onlineLookupBtn" type="button" class="btn small">🔍 Online ergänzen</button>
+        <span id="onlineLookupStatus" class="muted small" aria-live="polite"></span>
+      </div>
+      <div id="onlineCandidates"></div>
       <div class="grid2">
         <label>Ticker/Symbol <input name="symbol" autocapitalize="characters"></label>
         <label>Typ <select name="type"></select></label>
@@ -300,7 +311,7 @@
         <li><strong>Gewichtung:</strong> Innerhalb eines Zeitfensters stehen News zu deinen größten Positionen zuerst.</li>
       </ol>
       <p class="small muted">Das Zeitfenster kannst du unter „Mehr“ ändern (Stunde, 6 Stunden, Tag oder exakt nach Zeit).
-        Es werden nur Artikel aus aktivierten Quellen gezeigt, deren Überschrift die Position nennt.</p>
+        Es werden nur Artikel aus aktivierten Quellen gezeigt, die die Position in Überschrift oder Anreißer nennen. Gleiche Meldungen mehrerer Medien werden zusammengefasst.</p>
       <div class="btn-row"><button class="btn primary">Verstanden</button></div>
     </form>
   </dialog>

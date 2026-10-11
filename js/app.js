@@ -2,12 +2,13 @@
 
 import { $, $$, esc, uid, parseNumber, fmtMoney, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
 import { importFile, recomputeWeights, FIELD_LABELS } from './parser.js';
-import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, ASSET_TYPES } from './assets.js';
-import { fetchNews, rankNews, bucketLabel } from './news.js';
+import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, ASSET_TYPES } from './assets.js';
+import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
+import { lookupSecurity } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -79,7 +80,8 @@ function fmtPos(p, mode = displayMode()) {
 /** IDs der Positionen, für die News abgerufen werden (größte N mit aktiviertem Abruf). */
 function newsTopIds() {
   return new Set([...state.portfolio.positions].filter(p => p.newsEnabled !== false && p.type !== 'Cash')
-    .sort((a, b) => (b.weight || 0) - (a.weight || 0)).slice(0, state.settings.maxPositions).map(p => p.id));
+    .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+    .slice(0, state.settings.provider === 'pool' ? Infinity : state.settings.maxPositions).map(p => p.id));
 }
 
 function totalValue() {
@@ -120,6 +122,7 @@ function renderNews() {
   const mode = state.settings.bucket || 'day';
   let items = rankNews(state.news.items, map, mode);
   if (newsFilter) items = items.filter(it => it.positionIds.includes(newsFilter));
+  items = collapseSimilar(items);
   const read = new Set(state.news.read);
 
   const chip = $('#filterChip');
@@ -164,7 +167,7 @@ function renderNews() {
     const unread = !read.has(it.id);
     html += `<article class="news-item ${unread ? 'unread' : ''}">
       <a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer" data-id="${esc(it.id)}">${unread ? '<span class="dot" aria-label="neu"></span>' : ''}${esc(it.title)}</a>
-      <div class="meta"><span class="src">${esc(it.sourceName)}</span> · <time datetime="${new Date(it.ts).toISOString()}" title="${esc(fmtDateTime(it.ts))}">${esc(timeAgo(it.ts))}</time></div>
+      <div class="meta"><span class="src">${esc(it.sourceName)}</span>${it.also?.length ? ` <span class="also">+ ${esc(it.also.join(', '))}</span>` : ''} · <time datetime="${new Date(it.ts).toISOString()}" title="${esc(fmtDateTime(it.ts))}">${esc(timeAgo(it.ts))}</time></div>
       <div class="chips">${chips}</div>
     </article>`;
   }
@@ -286,6 +289,11 @@ async function renderSettings() {
   f.lang_en.checked = s.languages.includes('en');
   f.timespanDays.value = String(s.timespanDays);
   f.maxPositions.value = s.maxPositions;
+  const pi = state.news.poolInfo;
+  $('#poolHint').textContent = s.provider === 'pool'
+    ? 'Eine GitHub Action sammelt alle 30 Minuten die Schlagzeilen aller Quellen; die App sucht darin lokal nach deinen Positionen – dein Depot verlässt das Gerät nicht.'
+      + (pi?.generatedAt ? ` Stand der Sammlung: ${fmtDateTime(pi.generatedAt)}, ${pi.count} Artikel.` : '')
+    : 'Live-Suche: Suchbegriffe werden direkt an den Nachrichtendienst gesendet. Im Browser oft durch CORS blockiert.';
   f.bucket.value = s.bucket;
   f.autoRefreshMin.value = String(s.autoRefreshMin);
   f.askOnStart.checked = s.askOnStart;
@@ -572,6 +580,37 @@ async function exportPositions() {
   }
 }
 
+/** Zeigt die Suchbegriffe der Positionen zum Eintragen in news/watchlist.txt der News-Sammlung. */
+function showWatchlistTerms() {
+  const terms = [...new Set(state.portfolio.positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash')
+    .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+    .flatMap(p => splitTerms(p.searchTerm || p.name)))];
+  const text = terms.join('\n');
+  const m = defaultPoolUrl().match(/githubusercontent\.com\/([^/]+)\/([^/]+)\//);
+  const editUrl = m ? `https://github.com/${m[1]}/${m[2]}/edit/main/news/watchlist.txt` : '';
+  const dlg = document.createElement('dialog');
+  dlg.className = 'dlg';
+  dlg.innerHTML = `<form method="dialog" class="dlg-body">
+    <h2>Suchbegriffe für die News-Sammlung</h2>
+    <p class="small">Die News-Sammlung enthält bereits alle aktuellen Wirtschafts-Schlagzeilen. Damit auch Meldungen zu
+      kleineren Werten gezielt gesucht werden, kannst du diese Begriffe in <code>news/watchlist.txt</code> auf GitHub eintragen.</p>
+    <p class="small warn-text">Achtung: Diese Datei ist öffentlich sichtbar. Es werden nur Suchbegriffe geteilt – keine Werte oder Gewichtungen.</p>
+    <textarea class="terms" readonly>${esc(text)}</textarea>
+    <div class="btn-row">
+      <button type="button" class="btn primary" data-copy>Kopieren</button>
+      ${editUrl ? `<a class="btn" href="${esc(editUrl)}" target="_blank" rel="noopener">Auf GitHub öffnen</a>` : ''}
+      <button class="btn ghost" value="close">Schließen</button>
+    </div>
+  </form>`;
+  document.body.appendChild(dlg);
+  $('[data-copy]', dlg).onclick = async () => {
+    try { await navigator.clipboard.writeText(text); toast('Suchbegriffe kopiert.'); }
+    catch { $('textarea', dlg).select(); toast('Bitte markierten Text kopieren.'); }
+  };
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.showModal();
+}
+
 // ---------------------------------------------------------------- Positionen bearbeiten
 
 function openPosEditor(id, preset = {}) {
@@ -592,8 +631,76 @@ function openPosEditor(id, preset = {}) {
   f.searchTerm.value = p.searchTerm || '';
   f.newsEnabled.checked = p.newsEnabled !== false;
   $('#deletePosBtn').hidden = !id;
+  $('#onlineCandidates').innerHTML = '';
+  $('#onlineLookupStatus').textContent = '';
+  $('#lookupIntro').hidden = !!id;
+  lastLookup = '';
   updatePosHints();
   $('#posDlg').showModal();
+}
+
+// ---------------------------------------------------------------- Online-Suche im Positionseditor
+
+let lastLookup = '';
+let lookupCandidates = [];
+let lookupSeq = 0;
+
+/** Startet die Online-Suche mit ISIN, WKN oder Name (in dieser Reihenfolge). */
+async function runOnlineLookup({ auto = false } = {}) {
+  const f = $('#posForm');
+  const isin = f.isin.value.trim().toUpperCase();
+  const wkn = f.wkn.value.trim().toUpperCase();
+  const name = f.name.value.trim();
+  const query = isValidIsin(isin) ? isin : looksLikeWkn(wkn) ? wkn : name;
+  if (!query || query.length < 2) { if (!auto) $('#onlineLookupStatus').textContent = 'Bitte Name, ISIN oder WKN eingeben.'; return; }
+  if (auto && query === lastLookup) return;
+  lastLookup = query;
+  const seq = ++lookupSeq;
+  const status = $('#onlineLookupStatus');
+  status.textContent = `Suche „${query}“ …`;
+  $('#onlineLookupBtn').disabled = true;
+  try {
+    const { candidates, errors } = await lookupSecurity(query);
+    if (seq !== lookupSeq) return; // veraltete Antwort
+    lookupCandidates = candidates;
+    if (!candidates.length) {
+      status.textContent = errors.length && errors.length >= 2
+        ? 'Online-Suche nicht erreichbar – Felder bitte von Hand ausfüllen.'
+        : 'Nichts gefunden. Tipp: ISIN eingeben oder den Namen genauer schreiben.';
+      $('#onlineCandidates').innerHTML = '';
+      return;
+    }
+    const exactId = isValidIsin(query) || looksLikeWkn(query);
+    status.textContent = candidates.length === 1 || exactId ? 'Gefunden – übernommen:' : `${candidates.length} Treffer – bitte auswählen:`;
+    $('#onlineCandidates').innerHTML = candidates.map((c, i) => `
+      <button type="button" class="cand" data-cand="${i}">
+        <b>${esc(c.name)}</b>
+        <span class="muted small">${esc([c.isin, c.wkn && 'WKN ' + c.wkn, c.symbol && `${c.symbol}${c.exchange ? ' (' + c.exchange + ')' : ''}`, c.type, c.country].filter(Boolean).join(' · '))}</span>
+        ${c.description ? `<span class="muted small">${esc(c.description)} · ${esc(c.source)}</span>` : `<span class="muted small">${esc(c.source)}</span>`}
+      </button>`).join('');
+    if (candidates.length === 1 || exactId) applyCandidate(0);
+  } catch (e) {
+    if (seq === lookupSeq) status.textContent = 'Online-Suche fehlgeschlagen: ' + e.message;
+  } finally {
+    if (seq === lookupSeq) $('#onlineLookupBtn').disabled = false;
+  }
+}
+
+/** Übernimmt einen Treffer in die Felder; Eingaben des Nutzers bleiben erhalten, außer beim Namen neuer Positionen. */
+function applyCandidate(i) {
+  const c = lookupCandidates[i];
+  if (!c) return;
+  const f = $('#posForm');
+  const fill = (field, value, force = false) => { if (value && (force || !f[field].value.trim())) f[field].value = value; };
+  fill('name', c.name, !editingId);
+  fill('isin', c.isin);
+  fill('wkn', c.wkn || wknFromIsin(c.isin));
+  fill('symbol', c.symbol);
+  if (c.type) f.type.value = c.type;
+  fill('searchTerm', c.searchTerm);
+  $$('#onlineCandidates .cand').forEach(b => b.classList.toggle('picked', Number(b.dataset.cand) === i));
+  lastLookup = isValidIsin(f.isin.value.trim().toUpperCase()) ? f.isin.value.trim().toUpperCase() : lastLookup;
+  updatePosHints();
 }
 
 function updatePosHints() {
@@ -667,7 +774,7 @@ async function refreshNews({ silent = false } = {}) {
   $('.bar', prog).style.width = '3%';
   $('#newsStatus').textContent = 'Lade News …';
   try {
-    const { items, errors } = await fetchNews({
+    const { items, errors, poolInfo } = await fetchNews({
       positions: state.portfolio.positions,
       sources: state.sources,
       settings: state.settings,
@@ -692,6 +799,7 @@ async function refreshNews({ silent = false } = {}) {
     state.news.known = [...known];
     state.news.fetchedAt = Date.now();
     state.news.errors = errors;
+    state.news.poolInfo = poolInfo || null;
     save(true);
     renderAll();
     if (!firstFetch && fresh.length) notifyNew(fresh);
@@ -712,7 +820,7 @@ async function notifyNew(items) {
   const s = state.settings;
   if (!s.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
   const map = newsPosById();
-  const relevant = rankNews(items, map, s.bucket).filter(it => it.weight >= (s.notifyMinWeight || 0));
+  const relevant = collapseSimilar(rankNews(items, map, s.bucket)).filter(it => it.weight >= (s.notifyMinWeight || 0));
   if (!relevant.length) return;
   const reg = await navigator.serviceWorker?.getRegistration();
   const show = (title, opts) => (reg ? reg.showNotification(title, opts) : new Notification(title, opts));
@@ -839,6 +947,7 @@ function bindEvents() {
   });
   $('#addPosBtn').addEventListener('click', () => openPosEditor(null));
   $('#exportPosBtn').addEventListener('click', exportPositions);
+  $('#copyTermsBtn').addEventListener('click', showWatchlistTerms);
   $('#depotFilter').addEventListener('input', renderDepot);
   $('#positionList').addEventListener('change', e => {
     const id = e.target.dataset.news;
@@ -869,6 +978,19 @@ function bindEvents() {
     const v = pf.isin.value.trim().toUpperCase();
     if (!pf.wkn.value && wknFromIsin(v)) pf.wkn.value = wknFromIsin(v);
     updatePosHints();
+    if (isValidIsin(v)) runOnlineLookup({ auto: true }); // vollständige ISIN → automatisch suchen
+  });
+  pf.wkn.addEventListener('input', () => {
+    if (pf.wkn.value.trim().length === 6 && looksLikeWkn(pf.wkn.value.trim()) && !isValidIsin(pf.isin.value.trim().toUpperCase())) runOnlineLookup({ auto: true });
+  });
+  pf.name.addEventListener('change', () => {
+    // Neue Position, nur Name eingegeben → automatisch Vorschläge holen
+    if (!editingId && !pf.isin.value.trim() && !pf.wkn.value.trim()) runOnlineLookup({ auto: true });
+  });
+  $('#onlineLookupBtn').addEventListener('click', () => { lastLookup = ''; runOnlineLookup(); });
+  $('#onlineCandidates').addEventListener('click', e => {
+    const b = e.target.closest('[data-cand]');
+    if (b) applyCandidate(Number(b.dataset.cand));
   });
   $('#suggestTermBtn').addEventListener('click', () => {
     pf.searchTerm.value = suggestSearchTerm({ name: pf.name.value, isin: pf.isin.value.toUpperCase(), type: pf.type.value });

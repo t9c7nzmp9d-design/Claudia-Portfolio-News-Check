@@ -9,7 +9,7 @@ on:
     - cron: '7,37 * * * *'
   workflow_dispatch:
   push:
-    branches: [main, claude/charming-goodall-9mf6gc]  # TEST – vor dem Merge wieder entfernen
+    branches: [main]
     paths: ['news/**', 'scripts/collect-news.mjs', '.github/workflows/news.yml']
 
 permissions:

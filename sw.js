@@ -1,10 +1,10 @@
 // Service Worker: App offline verfügbar machen und Klicks auf Benachrichtigungen behandeln.
 // Bei Änderungen an App-Dateien die Versionsnummer erhöhen.
-const CACHE = 'depot-news-v1.2.0';
+const CACHE = 'depot-news-v1.3.0';
 const SHELL = [
   './', 'index.html', 'datenschutz.html', 'manifest.webmanifest',
   'css/app.css',
-  'js/app.js', 'js/util.js', 'js/assets.js', 'js/parser.js', 'js/news.js', 'js/sources.js', 'js/store.js',
+  'js/app.js', 'js/util.js', 'js/assets.js', 'js/parser.js', 'js/news.js', 'js/sources.js', 'js/store.js', 'js/lookup.js',
   'vendor/xlsx.full.min.js',
   'sample/Musterdepot.xlsx', 'sample/Musterdepot.csv', 'sample/Musterdepot_Bank-Export.csv',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'

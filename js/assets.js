@@ -70,7 +70,7 @@ const INDEXES = [
   [/msci (em|emerging)/, 'Emerging Markets'],
   [/msci europe|stoxx europe 600|stoxx 600/, 'Stoxx 600 OR europäische Aktien'],
   [/euro ?stoxx 50/, 'Euro Stoxx 50'],
-  [/msci japan|nikkei|topix/, 'Nikkei'],
+  [/msci japan|nikkei|topix/, 'Nikkei OR Topix -Nikkei Asia'],
   [/msci china|csi 300/, 'China Aktien OR CSI 300'],
   [/\bdax\b/, 'DAX'],
   [/mdax/, 'MDAX'],
@@ -175,9 +175,15 @@ function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 /** Zerlegt "A OR B | C" in einzelne Suchbegriffe. */
 export function splitTerms(term) {
   return String(term || '')
+    .split(/\s+-(?=\S)/)[0] // Ausschlüsse („ -Nikkei Asia“) gehören nicht zur Suche
     .split(/\s+OR\s+|\s*\|\s*|\s*;\s*/)
     .map(s => s.trim().replace(/^"|"$/g, ''))
     .filter(s => s.length >= 2);
+}
+
+/** Ausschlussbegriffe: alles nach „ -“, z. B. „Nikkei OR Topix -Nikkei Asia -Nikkei Business“. */
+export function excludedTerms(term) {
+  return String(term || '').split(/\s+-(?=\S)/).slice(1).map(s => s.trim()).filter(s => s.length >= 2);
 }
 
 export const ASSET_TYPES = ['Aktie', 'ETF', 'Fonds', 'ETC', 'Anleihe', 'Krypto', 'Rohstoff', 'Cash', 'Sonstiges'];

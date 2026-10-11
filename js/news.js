@@ -1,6 +1,9 @@
 // News abrufen, Positionen zuordnen und sortieren.
 //
 // Anbieter (Einstellung „provider“):
+//  • pool (Standard): „News-Sammlung“ – eine GitHub Action sammelt alle 30 Min. die Schlagzeilen
+//    der Quellen in news.json (Branch news-data). Die App lädt nur diese Datei (CORS-frei über
+//    raw.githubusercontent.com) und ordnet lokal zu. Keine Proxys nötig, Depot bleibt lokal.
 //  • auto (Standard): GDELT direkt; ist GDELT nicht erreichbar (z. B. Safari „Load failed“ durch
 //    CORS-Sperre, Überlastung oder Zeitüberschreitung), automatisch Google News RSS über Proxy.
 //  • gdelt: GDELT DOC 2.0 API – kostenlos, ohne Schlüssel. Limit 1 Anfrage / 5 s → Begriffe gebündelt.
@@ -8,7 +11,7 @@
 //  • Eigene RSS-Feeds je Quelle: direkt (falls CORS erlaubt) oder über Proxy.
 
 import { sleep, hostOf, hostMatches, escapeRegExp, norm } from './util.js';
-import { splitTerms } from './assets.js';
+import { splitTerms, excludedTerms } from './assets.js';
 
 const GDELT_URL = 'https://api.gdeltproject.org/api/v2/doc/doc';
 const GDELT_GAP_MS = 5600;
@@ -16,10 +19,9 @@ const LANG_GDELT = { de: 'german', en: 'english' };
 
 /** Baut aus "A OR B" Regexe, die ganze Wörter im Titel finden. */
 export function termMatchers(position) {
-  return splitTerms(position.searchTerm || position.name).map(t => {
-    const body = escapeRegExp(norm(t)).replace(/\\ |\s+/g, '\\s+');
-    return new RegExp(`(^|\\s)${body}(\\s|$)`);
-  });
+  const re = t => new RegExp(`(^|\\s)${escapeRegExp(norm(t)).replace(/\s+/g, '\\s+')}(?=\\s|$)`, 'g');
+  const term = position.searchTerm || position.name;
+  return { pos: splitTerms(term).map(re), neg: excludedTerms(term).map(re) };
 }
 
 export function matchPositions(title, positions, matcherCache) {
@@ -27,7 +29,10 @@ export function matchPositions(title, positions, matcherCache) {
   const hits = [];
   for (const p of positions) {
     const ms = matcherCache.get(p.id);
-    if (ms && ms.some(re => re.test(n))) hits.push(p.id);
+    if (!ms) continue;
+    // Ausschlussbegriffe aus dem Text entfernen, dann nach den Suchbegriffen suchen
+    const text = ms.neg.reduce((t, re) => t.replace(re, ' '), n);
+    if (ms.pos.some(re => { re.lastIndex = 0; return re.test(text); })) hits.push(p.id);
   }
   return hits;
 }
@@ -208,15 +213,44 @@ async function pool(tasks, limit) {
   return results;
 }
 
+/** Adresse der News-Sammlung: aus der GitHub-Pages-Adresse abgeleitet oder fest für dieses Repository. */
+export function defaultPoolUrl(loc = globalThis.location) {
+  const h = loc?.hostname || '';
+  if (h.endsWith('.github.io')) {
+    const owner = h.split('.')[0];
+    const repo = (loc.pathname || '').split('/').filter(Boolean)[0];
+    if (repo) return `https://raw.githubusercontent.com/${owner}/${repo}/news-data/news.json`;
+  }
+  return 'https://raw.githubusercontent.com/t9c7nzmp9d-design/Claudia-Portfolio-News-Check/news-data/news.json';
+}
+
+async function fetchPool(settings, signal) {
+  const url = (settings.poolUrl || defaultPoolUrl()) + `?t=${Math.floor(Date.now() / 120000)}`;
+  let r;
+  try { r = await fetchWithTimeout(url, signal); }
+  catch (e) { if (signal?.aborted) throw e; const err = new Error(friendlyError(e, 'News-Sammlung')); err.network = true; throw err; }
+  if (r.status === 404) throw new Error('News-Sammlung noch nicht vorhanden – die GitHub Action „News sammeln“ muss einmal gelaufen sein (README).');
+  if (!r.ok) throw new Error(`News-Sammlung: HTTP ${r.status}`);
+  const data = await r.json();
+  return {
+    generatedAt: Date.parse(data.generatedAt) || null,
+    items: (data.items || []).map(a => ({
+      url: a.u, title: a.t, domain: a.d, sourceName: a.s, lang: a.l, ts: a.ts, summary: a.x || '', provider: 'Sammlung'
+    }))
+  };
+}
+
 /**
  * Holt News für die Positionen.
  * @returns {Promise<{items: object[], errors: string[]}>}
  */
 export async function fetchNews({ positions, sources, settings, onProgress = () => {}, signal }) {
+  let provider = settings.provider || 'pool';
   const active = positions
     .filter(p => p.type !== 'Cash' && splitTerms(p.searchTerm || p.name).length && p.newsEnabled !== false)
     .sort((a, b) => (b.weight || 0) - (a.weight || 0))
-    .slice(0, settings.maxPositions || 20);
+    // Die Sammlung wird lokal durchsucht → keine Begrenzung nötig; Live-Suche nur für die größten N
+    .slice(0, provider === 'pool' ? Infinity : (settings.maxPositions || 20));
   const langs = settings.languages?.length ? settings.languages : ['de', 'en'];
   const enabledSources = sources.filter(s => s.enabled && (!s.lang || langs.includes(s.lang) || s.lang === 'any'));
   const domains = enabledSources.map(s => s.domain).filter(Boolean);
@@ -224,13 +258,29 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   const errors = [];
   let raw = [];
 
-  positions = positions.filter(p => p.newsEnabled !== false);
+  positions = positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash');
   const matcherCache = new Map(positions.map(p => [p.id, termMatchers(p)]));
 
   if (!active.length) return { items: [], errors: ['Keine Positionen mit Suchbegriff vorhanden.'] };
   if (!domains.length) return { items: [], errors: ['Keine Nachrichtenquelle aktiv.'] };
 
-  const provider = settings.provider || 'auto';
+  let poolInfo = null;
+  if (provider === 'pool') {
+    onProgress(0, 1);
+    try {
+      const pool = await fetchPool(settings, signal);
+      raw.push(...pool.items);
+      poolInfo = { generatedAt: pool.generatedAt, count: pool.items.length };
+      if (pool.generatedAt && Date.now() - pool.generatedAt > 6 * 3600000) {
+        errors.push(`Die News-Sammlung ist ${Math.round((Date.now() - pool.generatedAt) / 3600000)} Std. alt – läuft die GitHub Action „News sammeln“? (README)`);
+      }
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      errors.push(`${e.message} Es wird stattdessen live gesucht.`);
+      provider = 'auto';
+    }
+    onProgress(1, 1);
+  }
   const termsOf = p => splitTerms(p.searchTerm || p.name);
 
   // Google News: Begriffe mehrerer Positionen bündeln (weniger Anfragen über den Proxy).
@@ -299,7 +349,9 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
     return { ok };
   };
 
-  if (provider === 'gnews') {
+  if (provider === 'pool') {
+    // bereits geladen
+  } else if (provider === 'gnews') {
     await runGoogle();
   } else {
     const r = await runGdelt();
@@ -313,7 +365,8 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   }
 
   // Eigene RSS-Feeds (Quellen mit Feed-URL)
-  const feedSources = enabledSources.filter(s => s.rss);
+  // (Bei der Sammlung sind die Feeds der vorgeschlagenen Quellen bereits enthalten.)
+  const feedSources = enabledSources.filter(s => s.rss && !(provider === 'pool' && s.builtin));
   if (feedSources.length && (settings.useFeeds ?? true)) {
     const res = await pool(feedSources.map(s => async () => {
       const xml = await fetchText(s.rss, settings, signal);
@@ -335,7 +388,10 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
     const src = sourceFor(a);
     if (!src || !a.title) continue;
     if (a.ts < cutoff) continue;
+    if (a.lang && (a.lang === 'de' || a.lang === 'en') && !langs.includes(a.lang)) continue;
+    // Überschrift zählt; bei der Sammlung zusätzlich der Anreißertext
     let ids = matchPositions(a.title, positions, matcherCache);
+    if (!ids.length && a.summary) ids = matchPositions(a.summary, positions, matcherCache);
     if (!ids.length) continue;
     const key = norm(a.title).slice(0, 90);
     const prev = byKey.get(key);
@@ -356,7 +412,7 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
       if (item.ts < prev.ts) prev.ts = item.ts; // frühester Zeitpunkt
     } else byKey.set(key, item);
   }
-  return { items: [...byKey.values()], errors: [...new Set(errors)] };
+  return { items: [...byKey.values()], errors: [...new Set(errors)], poolInfo };
 }
 
 // ---------- Sortierung: 1. Aktualität (Zeitfenster), 2. Gewichtung ----------
@@ -387,6 +443,32 @@ export function rankNews(items, positionsById, mode = 'day') {
     .filter(it => it.positionIds.some(id => positionsById.has(id)))
     .map(it => ({ ...it, weight: itemWeight(it, positionsById), bucket: bucketOf(it.ts, mode) }))
     .sort((a, b) => b.bucket - a.bucket || b.weight - a.weight || b.ts - a.ts);
+}
+
+const STOP = new Set(['der', 'die', 'das', 'und', 'mit', 'für', 'fuer', 'von', 'den', 'dem', 'des', 'ein', 'eine', 'auf', 'ist', 'im', 'in', 'zu', 'bei', 'nach', 'the', 'and', 'for', 'with', 'from', 'that', 'its', 'will', 'says', 'over', 'into']);
+const words = t => new Set(norm(t).split(' ').filter(w => w.length >= 3 && !STOP.has(w)));
+
+/**
+ * Fasst sehr ähnliche Meldungen (gleiche Hauptposition, ≥ 50 % gemeinsame Wörter, innerhalb von 36 Std.)
+ * zu einer zusammen; die übrigen Quellen werden als „auch bei …“ angehängt. Erwartet sortierte Liste.
+ */
+export function collapseSimilar(items) {
+  const kept = [];
+  for (const it of items) {
+    const w = words(it.title);
+    const twin = kept.find(k => k.positionIds[0] === it.positionIds[0] && Math.abs(k.ts - it.ts) < 36 * 3600000 && (() => {
+      let common = 0;
+      for (const x of w) if (k._w.has(x)) common++;
+      return common / Math.max(1, Math.min(w.size, k._w.size)) >= 0.5;
+    })());
+    if (twin) {
+      twin.also = [...new Set([...(twin.also || []), it.sourceName])].filter(s => s !== twin.sourceName);
+      twin.alsoIds = [...(twin.alsoIds || []), it.id];
+      continue;
+    }
+    kept.push({ ...it, _w: w });
+  }
+  return kept;
 }
 
 export function bucketLabel(bucket, mode) {

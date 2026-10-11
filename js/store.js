@@ -5,11 +5,12 @@ import { DEFAULT_SOURCES } from './sources.js';
 import { uid } from './util.js';
 
 const KEY = 'pnc-state-v1';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export function defaultSettings() {
   return {
-    provider: 'auto',         // 'auto' (GDELT, sonst Google News) | 'gdelt' | 'gnews'
+    provider: 'pool',         // 'pool' (News-Sammlung der GitHub Action) | 'auto' | 'gdelt' | 'gnews'
+    poolUrl: '',              // leer = automatisch aus der GitHub-Pages-Adresse
     proxyUrl: '',             // eigener CORS-Proxy, z. B. Cloudflare Worker
     publicProxy: true,        // öffentlichen Ausweich-Proxy nutzen, wenn direkter Abruf scheitert
     languages: ['de', 'en'],
@@ -61,6 +62,8 @@ export function migrate(s) {
   }
   // v1 → v2: neuer Standard „auto“ mit Ausweichweg, falls GDELT im Browser blockiert wird
   if ((s.schema || 1) < 2 && out.settings.provider === 'gdelt') out.settings.provider = 'auto';
+  // v2 → v3: die Live-Suche war im Browser unzuverlässig → News-Sammlung als Standard
+  if ((s.schema || 1) < 3 && ['auto', 'gdelt'].includes(out.settings.provider)) out.settings.provider = 'pool';
   out.schema = SCHEMA_VERSION;
   return out;
 }
