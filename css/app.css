@@ -272,3 +272,22 @@ table.cols td { vertical-align: top; }
 table.cols td:last-child { width: 46%; }
 .tiny { font-size: .72rem; }
 tr.dropped td { opacity: .5; } tr.dropped b { text-decoration: line-through; }
+.lookup-row { display: flex; gap: 8px; align-items: center; }
+.lookup-row input { flex: 1; }
+.close-btn {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font-size: 1rem; cursor: pointer; line-height: 1;
+}
+table.watch tr { cursor: pointer; }
+table.watch td { vertical-align: top; }
+.dlg-wide { width: min(720px, calc(100vw - 24px)); }
+.readme { font-size: .92rem; overflow-wrap: anywhere; }
+.readme h2, .readme h3 { margin-top: 1.2rem; }
+.readme table.mini td, .readme table.mini th { vertical-align: top; }
+.readme pre { background: var(--surface-2); padding: 10px; border-radius: 8px; overflow-x: auto; font-size: .8rem; }
+.readme code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; font-size: .85em; }
+.readme blockquote { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); }
+.readme table { overflow-wrap: normal; word-break: normal; hyphens: auto; -webkit-hyphens: auto; }
+.readme table tr > :first-child { min-width: 7.5em; }
+.readme table tr > :first-child { width: 30%; min-width: 6.5em; }
+.readme table { table-layout: fixed; width: 100%; } .readme table tr > :first-child { overflow-wrap: break-word; }

@@ -40,6 +40,7 @@
           <input id="lookupInput" type="search" inputmode="search" autocomplete="off" autocapitalize="characters"
                  placeholder="WKN, ISIN oder Name" list="lookupList">
           <datalist id="lookupList"></datalist>
+          <button id="lookupClose" class="close-btn" type="button" aria-label="Nachschlagen schließen" title="Schließen" hidden>✕</button>
         </div>
         <div class="toggle-row">
           <span class="muted small">Anzeige</span>
@@ -158,6 +159,7 @@
         </label>
         <p class="muted small">Die Suchliste (Positionen und Suchbegriffe) bleibt nur auf diesem Gerät. Die App lädt
           allgemeine Wirtschafts-Schlagzeilen und sucht darin lokal nach diesen Positionen. 0 = alle Positionen.</p>
+        <div id="watchList"></div>
 
         <h2>Benachrichtigungen</h2>
         <label class="check"><input type="checkbox" name="notify"> Bei neuen News benachrichtigen</label>
@@ -182,21 +184,18 @@
           <button id="forgetDirBtn" class="btn ghost" type="button">Trennen</button>
         </div>
         <label class="check"><input type="checkbox" id="autoBackupChk"> Automatische Sicherung ins Verzeichnis</label>
-      </div>
-
-      <div class="card">
-        <h2>Info</h2>
-        <p class="small">Private, nicht-kommerzielle Anwendung. Alle Depotdaten bleiben auf diesem Gerät.
-          Keine Anlageberatung.</p>
-        <ul class="links">
-          <li><a href="datenschutz.html">Datenschutz</a></li>
-          <li><a href="sample/Musterdepot.xlsx" download>Musterdatei (Excel)</a> · <a href="sample/Musterdepot.csv" download>CSV</a> · <a href="sample/Musterdepot_Bank-Export.csv" download>Bank-Export-Beispiel</a></li>
-          <li><a id="repoLink" href="https://github.com/t9c7nzmp9d-design/Claudia-Portfolio-News-Check" rel="noopener">Quellcode &amp; Anleitung (README)</a></li>
-        </ul>
         <div class="btn-row">
           <button id="onboardAgainBtn" class="btn" type="button">Einrichtung erneut starten</button>
           <button id="wipeBtn" class="btn danger" type="button">Alle Daten löschen</button>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Info</h2>
+        <ul class="links">
+          <li><a href="datenschutz.html">Datenschutz</a></li>
+          <li><a href="#" id="readmeLink">Anleitung (README)</a></li>
+        </ul>
         <p class="muted small" id="versionInfo"></p>
       </div>
     </section>
@@ -294,6 +293,14 @@
         <button value="cancel" formnovalidate class="btn ghost">Abbrechen</button>
         <button value="ok" class="btn primary">Speichern</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- Anleitung (README) -->
+  <dialog id="readmeDlg" class="dlg dlg-wide">
+    <form method="dialog" class="dlg-body">
+      <div class="row-between"><h2>Anleitung</h2><button class="close-btn" value="close" aria-label="Schließen">✕</button></div>
+      <div id="readmeBody" class="readme">Wird geladen …</div>
     </form>
   </dialog>
 
