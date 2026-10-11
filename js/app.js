@@ -1,14 +1,14 @@
 // Hauptlogik der Oberfläche.
 
-import { $, $$, esc, uid, parseNumber, fmtMoney, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
+import { $, $$, esc, uid, parseNumber, fmtMoney, fmtNumber, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
 import { importFile, parseSheets, recomputeWeights, FIELD_LABELS } from './parser.js';
 import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, ASSET_TYPES } from './assets.js';
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
-import { lookupSecurity } from './lookup.js';
+import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -255,7 +255,7 @@ function renderDepot() {
         <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? ` · unter ${esc(String(state.settings.watchMinWeight))} %` : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
-      <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span></div>
+      <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span>${p.priceAt ? `<span class="muted tiny">${esc(fmtQuote(p))}</span>` : ''}</div>
     </button>${newsSwitch(p.id, newsOn(p), p.name, 'data-news')}</li>`).join('') || '<li class="muted empty">Keine Positionen.</li>';
 }
 
@@ -380,6 +380,7 @@ function applyImport(res, mode, kind) {
   save(true);
   renderAll();
   autoBackup();
+  setTimeout(fetchMissingQuotes, 400); // einmalig Kurse für neue Positionen
 }
 
 const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
@@ -412,7 +413,11 @@ function importReportHtml(res, { colsOpen = false } = {}) {
     ? `<label class="small">Tabellenblatt <select id="impSheet">${res.sheetNames.map(n => `<option ${n === res.sheet ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`
     : '';
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
-      <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.${res.transposed ? ' <em>Tabelle war gedreht – automatisch umgestellt.</em>' : ''}</p>
+      <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.</p>
+    ${res.autoTransposed || res.orientationCorrected ? `<p class="small ok-text">✓ Plausibilitätsprüfung: ${res.transposed
+      ? 'Die Tabelle hat Felder in Zeilen und Positionen in Spalten – Zeilen und Spalten wurden automatisch getauscht.'
+      : 'Zeilen und Spalten sind richtig ausgerichtet – eine Drehung wurde geprüft und verworfen.'}</p>` : ''}
+    <label class="check small"><input type="checkbox" id="impTranspose" ${res.transposed ? 'checked' : ''}> Zeilen und Spalten tauschen</label>
     ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}
     <details class="advanced" ${colsOpen || missingName || missingAmount || !res.positions.length ? 'open' : ''}>
       <summary>Spalten prüfen und korrigieren</summary>
@@ -430,7 +435,7 @@ function importReportHtml(res, { colsOpen = false } = {}) {
 }
 
 /** Liest die Tabelle mit geänderter Spaltenzuordnung bzw. anderem Blatt neu ein. */
-function reparseImport({ sheet = null, changedCol = null, field = null } = {}) {
+function reparseImport({ sheet = null, changedCol = null, field = null, orientation = null } = {}) {
   const prev = pendingImport.res;
   let mapping = null;
   if (changedCol !== null) {
@@ -438,7 +443,9 @@ function reparseImport({ sheet = null, changedCol = null, field = null } = {}) {
     for (const [f, c] of Object.entries(mapping)) if (c === changedCol || f === field) delete mapping[f];
     if (field) mapping[field] = changedCol;
   }
-  const res = parseSheets(prev.sheets, { sheet: sheet ?? prev.sheet, mapping: sheet ? null : mapping });
+  // Spaltenkorrektur behält die aktuelle Ausrichtung; der Schalter legt sie neu fest
+  const orient = orientation || (sheet ? 'auto' : prev.transposed ? 'cols' : 'rows');
+  const res = parseSheets(prev.sheets, { sheet: sheet ?? prev.sheet, mapping: sheet || orientation ? null : mapping, orientation: orient });
   // Bereits gesetzte News-Schalter übernehmen
   for (const p of res.positions) {
     const o = prev.positions.find(x => keyMatches(x, p));
@@ -639,10 +646,62 @@ function openPosEditor(id, preset = {}) {
   $('#deletePosBtn').hidden = !id;
   $('#onlineCandidates').innerHTML = '';
   $('#onlineLookupStatus').textContent = '';
+  editorQuote = null;
+  $('#priceNote').textContent = p.priceAt ? fmtQuote(p) : '';
   $('#lookupIntro').hidden = !!id;
   lastLookup = '';
   updatePosHints();
   $('#posDlg').showModal();
+}
+
+// ---------------------------------------------------------------- Kurse (einmalig beim Einfügen)
+
+function fmtQuote(p) {
+  if (!Number.isFinite(p.price)) return '';
+  const cur = p.priceCurrency || 'EUR';
+  const price = cur === 'EUR' ? fmtMoney(p.price) : `${fmtNumber(p.price)} ${cur}`;
+  const when = p.priceAt ? new Date(p.priceAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : '';
+  return `Kurs ${price}${p.priceMarket ? ' · ' + p.priceMarket : ''}${when ? ' · ' + when : ''}`;
+}
+
+function applyQuote(p, q) {
+  if (!q) return false;
+  p.price = q.price;
+  p.priceCurrency = q.currency;
+  p.priceMarket = q.market;
+  p.priceAt = q.at;
+  // Wert nur ergänzen, wenn er fehlt, die Stückzahl bekannt ist und der Kurs in Euro vorliegt
+  if (!Number.isFinite(p.value) && Number.isFinite(p.quantity) && q.currency === 'EUR') p.value = p.quantity * q.price;
+  return true;
+}
+
+let quoteRun = null;
+/** Holt einmalig Kurse für Positionen ohne Kurs (z. B. nach dem Einlesen). Läuft im Hintergrund. */
+function fetchMissingQuotes() {
+  if (quoteRun) return quoteRun;
+  const todo = state.portfolio.positions.filter(p => !p.priceAt && !p.priceTried && p.type !== 'Cash');
+  if (!todo.length) return null;
+  let done = 0, ok = 0;
+  const status = () => { $('#quoteStatus').textContent = done < todo.length ? `Kurse werden geladen … (${done}/${todo.length})` : ''; };
+  status();
+  quoteRun = (async () => {
+    let i = 0;
+    await Promise.all(Array.from({ length: 3 }, async () => {
+      while (i < todo.length) {
+        const p = todo[i++];
+        try { if (applyQuote(p, await fetchQuote(p))) ok++; } catch { /* Kurs bleibt leer */ }
+        p.priceTried = true; // einmalig: nicht bei jedem Start erneut versuchen
+        done++;
+        status();
+      }
+    }));
+    recomputeWeights(state.portfolio.positions);
+    save(true);
+    renderAll();
+    if (!$('#view-depot').hidden) renderDepot();
+    toast(`${ok} von ${todo.length} Kursen geladen.`);
+  })().finally(() => { quoteRun = null; status(); });
+  return quoteRun;
 }
 
 // ---------------------------------------------------------------- Online-Suche im Positionseditor
@@ -693,6 +752,25 @@ async function runOnlineLookup({ auto = false } = {}) {
 }
 
 /** Übernimmt einen Treffer in die Felder; Eingaben des Nutzers bleiben erhalten, außer beim Namen neuer Positionen. */
+let editorQuote = null;
+/** Kurs zum gewählten Treffer holen und ins Feld „Kurs“ eintragen (einmalig). */
+async function loadEditorQuote(c) {
+  const note = $('#priceNote');
+  const f = $('#posForm');
+  editorQuote = null;
+  note.textContent = 'Kurs wird gesucht …';
+  try {
+    const q = await fetchQuote(c);
+    if (!q) { note.textContent = 'Kein aktueller Kurs gefunden.'; return; }
+    editorQuote = q;
+    f.price.value = String(q.price).replace('.', ',');
+    note.textContent = fmtQuote({ price: q.price, priceCurrency: q.currency, priceMarket: q.market, priceAt: q.at });
+    if (!f.value.value.trim() && parseNumber(f.quantity.value) !== null && q.currency === 'EUR') {
+      f.value.value = String(Math.round(parseNumber(f.quantity.value) * q.price * 100) / 100).replace('.', ',');
+    }
+  } catch { note.textContent = 'Kurs konnte nicht geladen werden.'; }
+}
+
 function applyCandidate(i) {
   const c = lookupCandidates[i];
   if (!c) return;
@@ -705,6 +783,7 @@ function applyCandidate(i) {
   if (c.type) f.type.value = c.type;
   fill('searchTerm', c.searchTerm);
   $$('#onlineCandidates .cand').forEach(b => b.classList.toggle('picked', Number(b.dataset.cand) === i));
+  loadEditorQuote(c);
   lastLookup = isValidIsin(f.isin.value.trim().toUpperCase()) ? f.isin.value.trim().toUpperCase() : lastLookup;
   updatePosHints();
 }
@@ -738,6 +817,9 @@ function savePosFromForm() {
     newsEnabled: f.newsEnabled.checked
   };
   if (data.value === null && data.quantity !== null && data.price !== null) data.value = data.quantity * data.price;
+  if (editorQuote && data.price === editorQuote.price) {
+    Object.assign(data, { priceCurrency: editorQuote.currency, priceMarket: editorQuote.market, priceAt: editorQuote.at });
+  }
   const term = f.searchTerm.value.trim();
   const ps = state.portfolio.positions;
   if (editingId) {
@@ -763,6 +845,8 @@ function savePosFromForm() {
   renderDepot();
   autoBackup();
   toast('Position gespeichert.');
+  // Neue Position ohne Kurs: Kurs einmalig im Hintergrund holen
+  setTimeout(fetchMissingQuotes, 200);
 }
 
 // ---------------------------------------------------------------- News
@@ -970,6 +1054,7 @@ function bindEvents() {
       return;
     }
     if (e.target.id === 'impSheet' && pendingImport) { reparseImport({ sheet: e.target.value }); return; }
+    if (e.target.id === 'impTranspose' && pendingImport) { reparseImport({ orientation: e.target.checked ? 'cols' : 'rows' }); return; }
     const i = e.target.dataset.imp;
     if (i === undefined || !pendingImport) return;
     pendingImport.res.positions[Number(i)].newsChoice = e.target.checked;

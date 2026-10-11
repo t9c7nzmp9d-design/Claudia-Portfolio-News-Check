@@ -50,3 +50,42 @@ test('onvista nicht erreichbar → deutsche WKN über Wikidata', async () => {
   assert.equal(candidates[0].wkn, '716460');
   assert.equal(errors.length, 1);
 });
+
+// Snapshot-Ausschnitte wie am 11.10.2026 von onvista geliefert
+const snap = list => ({ quote: list[0], quoteList: { list } });
+const q = (market, last, isoCurrency) => ({ market: { name: market }, last, isoCurrency, datetimeLast: '2026-10-09T20:00:00.000+00:00' });
+
+test('Kurs: Euro an deutschem Handelsplatz wird bevorzugt', async () => {
+  const { pickQuote } = await import('../js/lookup.js');
+  const s = snap([q('Nasdaq', 336.64, 'USD'), q('Tradegate BSX', 300.5, 'EUR'), q('Xetra', 298.15, 'EUR'), q('gettex', 300.05, 'EUR')]);
+  assert.deepEqual({ ...pickQuote(s), at: 0 }, { price: 298.15, currency: 'EUR', market: 'Xetra', at: 0 });
+  assert.equal(pickQuote(snap([q('Spotpreis', 4194.145, 'USD')])).currency, 'USD'); // Gold nur in USD
+  assert.equal(pickQuote({}), null);
+});
+
+test('Kurs: Suche per ISIN, dann passende Snapshot-Adresse je Typ', async () => {
+  const { fetchQuote } = await import('../js/lookup.js');
+  const calls = [];
+  globalThis.fetch = async url => {
+    calls.push(String(url).replace('https://api.onvista.de/api/v1/', ''));
+    if (String(url).includes('instruments/query')) return { ok: true, status: 200, json: async () => ({ list: [{ entityType: 'FUND', entitySubType: 'ETF', entityValue: '25096683', isin: 'IE00B4L5Y983', wkn: 'A0RPWH', name: 'iShares Core MSCI World' }] }) };
+    return { ok: true, status: 200, json: async () => snap([q('Xetra', 131.64, 'EUR')]) };
+  };
+  const quote = await fetchQuote({ isin: 'IE00B4L5Y983', name: 'iShares Core MSCI World' });
+  assert.equal(quote.price, 131.64);
+  assert.deepEqual(calls, ['instruments/query?searchValue=IE00B4L5Y983', 'funds/ISIN:IE00B4L5Y983/snapshot']);
+});
+
+test('Kurs: Krypto in Euro (BTCUSD → BTCEUR)', async () => {
+  const { fetchQuote } = await import('../js/lookup.js');
+  const calls = [];
+  globalThis.fetch = async url => {
+    calls.push(String(url).replace('https://api.onvista.de/api/v1/', ''));
+    if (String(url).includes('instruments/query')) return { ok: true, status: 200, json: async () => ({ list: [{ entityType: 'CRYPTO', entityValue: 'BTCUSD', isin: 'XC000A2YY636', name: 'Bitcoin (BTC) Kurs in US Dollar' }] }) };
+    return { ok: true, status: 200, json: async () => snap([q('Bitfinex', 74298, 'EUR'), q('Bitfinex', 83152, 'USD')]) };
+  };
+  const quote = await fetchQuote({ name: 'Bitcoin', symbol: 'BTC_to_EUR', type: 'Krypto' });
+  assert.equal(quote.price, 74298);
+  assert.equal(quote.currency, 'EUR');
+  assert.equal(calls[1], 'crypto/BTCEUR/snapshot');
+});

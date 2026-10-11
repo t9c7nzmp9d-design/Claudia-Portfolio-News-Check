@@ -90,7 +90,7 @@ function trimRows(rows) {
 }
 
 /** Findet die beste Kopfzeile in Zeilen- oder Spaltenausrichtung. */
-function findHeader(rows) {
+function findHeader(rows, orientation = 'auto') {
   const scan = (rs) => {
     let best = { index: -1, score: 0, fieldCount: 0 };
     rs.slice(0, 30).forEach((r, i) => {
@@ -99,14 +99,19 @@ function findHeader(rows) {
     });
     return best;
   };
-  const byRow = scan(rows);
+  if (orientation === 'rows') return { rows, header: scan(rows), transposed: false };
   const cols = transpose(rows);
+  if (orientation === 'cols') return { rows: cols, header: scan(cols), transposed: true };
+  const byRow = scan(rows);
   const byCol = scan(cols);
   if (byCol.score > byRow.score * 1.2 && byCol.fieldCount >= 2) {
     return { rows: cols, header: byCol, transposed: true };
   }
   return { rows, header: byRow, transposed: false };
 }
+
+// Echte Währungscodes – „SAP“ oder „BMW“ sind Namen, keine Währungen
+const CURRENCIES = new Set(['EUR', 'USD', 'CHF', 'GBP', 'JPY', 'CAD', 'AUD', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'HKD', 'CNY', 'SGD', 'NZD', 'ZAR', 'TRY', 'INR', 'BRL', 'MXN', 'KRW', 'TWD', 'GBX']);
 
 function columnStats(dataRows, width) {
   const stats = [];
@@ -123,7 +128,9 @@ function columnStats(dataRows, width) {
       numShare: nums.length / n,
       textShare: strs.filter(s => /[a-zA-ZäöüÄÖÜ]{3,}/.test(s) && parseNumber(s) === null).length / n,
       pctShare: strs.filter(s => /%\s*$/.test(s)).length / n,
-      currencyShare: strs.filter(s => /^[A-Z]{3}$/.test(s)).length / n,
+      currencyShare: strs.filter(s => CURRENCIES.has(s.toUpperCase())).length / n,
+      // Kennungen wie „BTC_to_EUR“, „US0378331005“, „A0RPWH“ – keine Namen
+      idLikeShare: strs.filter(s => /^[A-Za-z0-9_.\-]+$/.test(s) && /[_\d]/.test(s)).length / n,
       sum: nums.reduce((a, b) => a + b, 0),
       avgLen: strs.reduce((a, s) => a + s.length, 0) / (strs.length || 1)
     });
@@ -178,7 +185,8 @@ function mapColumns(headerCells, dataRows, forced = null) {
 
   if (mapping.isin === undefined) take('isin', stats.filter(free).filter(s => s.isinShare > 0.5).sort((a, b) => b.isinShare - a.isinShare)[0]);
   if (mapping.wkn === undefined) take('wkn', stats.filter(free).filter(s => s.wknShare > 0.6 && s.isinShare < 0.2).sort((a, b) => b.wknShare - a.wknShare)[0]);
-  if (mapping.name === undefined) take('name', stats.filter(free).filter(s => s.textShare > 0.6 && s.currencyShare < 0.5).sort((a, b) => b.avgLen - a.avgLen)[0]);
+  if (mapping.name === undefined) take('name', stats.filter(free).filter(s => s.textShare > 0.6 && s.currencyShare < 0.5)
+    .sort((a, b) => a.idLikeShare - b.idLikeShare || b.avgLen - a.avgLen)[0]);
   if (mapping.weight === undefined) {
     take('weight', stats.filter(free).filter(s => s.numShare > 0.7 && (s.pctShare > 0.5 || Math.abs(s.sum - 1) < 0.02 || Math.abs(s.sum - 100) < 2)).sort((a, b) => b.pctShare - a.pctShare)[0]);
   }
@@ -212,10 +220,46 @@ function countUsedColumns(headerCells, dataRows) {
  * Wandelt eine Tabelle (Array von Zeilen) in Positionen um.
  * Gibt { positions, mapping, transposed, headerRow, warnings } zurück.
  */
-export function rowsToPositions(rawRows, forcedMapping = null) {
+export function rowsToPositions(rawRows, forcedMapping = null, orientation = 'auto') {
   const rows0 = trimRows(rawRows);
   if (!rows0.length) return { positions: [], mapping: {}, warnings: ['Die Tabelle ist leer.'], score: 0 };
-  const { rows, header, transposed } = findHeader(rows0);
+  if (orientation !== 'auto' || forcedMapping) return parseOriented(rows0, forcedMapping, orientation === 'auto' ? 'rows' : orientation);
+  // Plausibilitätsprüfung: Tabelle in beiden Richtungen lesen und das glaubwürdigere Ergebnis nehmen
+  const asRows = parseOriented(rows0, null, 'rows');
+  const asCols = parseOriented(rows0, null, 'cols');
+  const pr = plausibility(asRows), pc = plausibility(asCols);
+  const pick = pc > pr * 1.15 ? asCols : asRows;
+  const other = pick === asCols ? asRows : asCols;
+  pick.plausibility = { rows: Math.round(pr * 10) / 10, cols: Math.round(pc * 10) / 10 };
+  if (pick === asCols) pick.autoTransposed = true;
+  // Reine Kopfzeilen-Heuristik hätte anders entschieden → Korrektur vermerken
+  const heuristic = findHeader(rows0).transposed;
+  if (heuristic !== pick.transposed) pick.orientationCorrected = true;
+  pick.alternative = other.positions.length ? { transposed: other.transposed, count: other.positions.length } : null;
+  return pick;
+}
+
+// Begriffe, die als „Name“ einer Position verdächtig sind (eigentlich Spaltentitel)
+const HEADER_WORDS = /^(isin|wkn|name|bezeichnung|wert|gewicht|anteil|stueck|stuck|anzahl|kurs|preis|waehrung|typ|summe|gesamt|total|value|weight|price|symbol|ticker)\b/;
+
+/**
+ * Wie glaubwürdig ist ein Einlese-Ergebnis? Gültige ISIN/WKN, echte Namen (keine Spaltentitel/Zahlen),
+ * Zahlen bei Wert/Gewicht und eine stimmige Gewichtssumme zählen positiv.
+ */
+export function plausibility(res) {
+  const ps = res.positions || [];
+  if (!ps.length) return 0;
+  const share = f => ps.filter(f).length / ps.length;
+  const idOk = share(p => isValidIsin(p.isin) || looksLikeWkn(p.wkn) || (p.symbol && /_|^[A-Z0-9.]{2,8}$/.test(p.symbol)));
+  const nameOk = share(p => p.name && parseNumber(p.name) === null && !HEADER_WORDS.test(norm(p.name)) && !isValidIsin(p.name));
+  const numOk = share(p => (Number.isFinite(p.value) && p.value > 0) || (Number.isFinite(p.weightFromFile) && p.weightFromFile > 0));
+  const fields = Object.keys(res.mapping || {}).length;
+  // Viele „Positionen“, deren Namen Spaltentitel sind, deuten auf eine falsch gedrehte Tabelle
+  return ps.length * (2 * idOk + 2 * nameOk + 1.5 * numOk) + fields;
+}
+
+function parseOriented(rows0, forcedMapping, orientation) {
+  const { rows, header, transposed } = findHeader(rows0, orientation);
   // Manuelle Zuordnung ohne erkannte Kopfzeile: erste Zeile ist Kopfzeile, wenn dort in Zahlenspalten keine Zahl steht
   if (header.index < 0 && forcedMapping) {
     const numCols = ['value', 'weight', 'quantity', 'price'].map(f => forcedMapping[f]).filter(c => c !== undefined && c !== null);
@@ -294,6 +338,7 @@ export function rowsToPositions(rawRows, forcedMapping = null) {
   const fractional = !weightIsPercentText && wSum > 0 && wSum <= 1.05 && positions.every(p => (p.weightRaw ?? 0) <= 1);
   for (const p of positions) {
     p.weight = p.weightRaw === null ? null : (fractional ? p.weightRaw * 100 : p.weightRaw);
+    if (p.weight !== null) p.weightFromFile = p.weight; // für die Plausibilitätsprüfung
     delete p.weightRaw;
   }
 
@@ -424,11 +469,11 @@ export async function readTableFile(file) {
  * Wertet bereits gelesene Tabellenblätter aus. Ohne Vorgaben wird das beste Blatt automatisch gewählt;
  * mit { sheet, mapping } wird genau dieses Blatt mit der manuell korrigierten Spaltenzuordnung gelesen.
  */
-export function parseSheets(sheets, { sheet = null, mapping = null } = {}) {
+export function parseSheets(sheets, { sheet = null, mapping = null, orientation = 'auto' } = {}) {
   let best = null;
   for (const sh of sheets) {
     if (sheet !== null && sh.name !== sheet) continue;
-    const res = rowsToPositions(sh.rows, mapping);
+    const res = rowsToPositions(sh.rows, mapping, orientation);
     if (!best || res.score > best.score) best = { ...res, sheet: sh.name };
   }
   return { ...best, sheetCount: sheets.length, sheetNames: sheets.map(s => s.name) };

@@ -49,7 +49,9 @@ export function candidateFromOnvista(it) {
     exchange: '',
     type,
     country: countryOf(it.isin),
-    url: it.urls?.WEBSITE || ''
+    url: it.urls?.WEBSITE || '',
+    entityType: it.entityType || '',
+    entityValue: it.entityValue || ''
   };
 }
 
@@ -60,6 +62,67 @@ async function searchOnvista(query) {
     .filter(it => it.entityType !== 'DERIVATIVE' || it.entitySubType === 'ETC_ETN_CERTIFICATE')
     .map(candidateFromOnvista)
     .filter(c => c.name);
+}
+
+// ---------- Kurse (einmalig beim Einfügen einer Position) ----------
+
+const SNAPSHOT_PATH = {
+  STOCK: isin => `stocks/ISIN:${isin}`,
+  FUND: isin => `funds/ISIN:${isin}`,
+  DERIVATIVE: isin => `derivatives/ISIN:${isin}`,
+  PRECIOUS_METAL: isin => `precious_metals/ISIN:${isin}`
+};
+// Bevorzugte Handelsplätze (Euro, Deutschland)
+const MARKET_ORDER = ['Xetra', 'Tradegate BSX', 'gettex', 'Stuttgart', 'Frankfurt', 'Lang & Schwarz', 'Quotrix', 'Düsseldorf', 'München', 'Berlin', 'Hamburg'];
+
+/** Wählt aus einem onvista-Snapshot den passendsten Kurs (Euro an deutschem Handelsplatz bevorzugt). */
+export function pickQuote(snap) {
+  const list = (snap?.quoteList?.list || []).filter(q => Number.isFinite(q.last));
+  const rank = q => {
+    const i = MARKET_ORDER.indexOf(q.market?.name);
+    return (q.isoCurrency === 'EUR' ? 0 : 100) + (i < 0 ? 50 : i);
+  };
+  const best = [...list].sort((a, b) => rank(a) - rank(b))[0] || (Number.isFinite(snap?.quote?.last) ? snap.quote : null);
+  if (!best) return null;
+  return {
+    price: best.last,
+    currency: best.isoCurrency || snap?.quote?.isoCurrency || '',
+    market: best.market?.name || '',
+    at: Date.parse(best.datetimeLast || best.datetimePrice || snap?.quote?.datetimeLast || '') || Date.now()
+  };
+}
+
+/**
+ * Holt einmalig den aktuellen Kurs einer Position über onvista.
+ * Nutzt entityType/entityValue aus der Suche, sonst wird per ISIN, WKN oder Name gesucht.
+ * Gibt { price, currency, market, at } oder null zurück.
+ */
+export async function fetchQuote(pos) {
+  let { isin = '', entityType = '', entityValue = '' } = pos;
+  if (!entityType) {
+    const q = pos.isin || pos.wkn || (pos.type === 'Krypto' ? String(pos.name || '').replace(/\(.*?\)/g, '').trim() : '') || pos.name;
+    if (!q) return null;
+    const list = (await fetchJson(`${ONVISTA_SEARCH}?searchValue=${encodeURIComponent(q)}`)).list || [];
+    const hit = list.find(it => (pos.isin && it.isin === pos.isin) || (pos.wkn && it.wkn === pos.wkn))
+      || (pos.isin || pos.wkn ? null : list.find(it => it.entityType !== 'DERIVATIVE'));
+    if (!hit) return null;
+    ({ entityType, entityValue } = hit);
+    isin = hit.isin || isin;
+  }
+  const paths = [];
+  if (entityType === 'CRYPTO' && entityValue) {
+    paths.push(`crypto/${entityValue.replace(/USD$/, 'EUR')}`);
+    if (!/EUR$/.test(entityValue)) paths.push(`crypto/${entityValue}`);
+  } else if (SNAPSHOT_PATH[entityType] && isin) {
+    paths.push(SNAPSHOT_PATH[entityType](isin));
+  }
+  for (const path of paths) {
+    try {
+      const quote = pickQuote(await fetchJson(`https://api.onvista.de/api/v1/${path}/snapshot`));
+      if (quote) return quote;
+    } catch { /* nächsten Weg versuchen */ }
+  }
+  return null;
 }
 
 // ---------- Wikidata (Rückfall) ----------

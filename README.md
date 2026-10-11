@@ -13,6 +13,8 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 |---|---|
 | **Einrichtung** | Beim ersten Start: lokales Verzeichnis wählen *oder* Tabelle hochladen *oder* überspringen → Musterdepot |
 | **Import** | Tabelle (Excel `.xlsx/.xls/.ods`, Apple Numbers `.numbers`) oder CSV (`;` `,` Tab; UTF-8, UTF-16, Windows-1252). Sinnvoll sind bis zu 6 Spalten (z. B. ISIN, WKN, Name, Typ, Wert, Gewicht) – bei mehr Spalten erscheint ein Hinweis, eingelesen wird trotzdem |
+| **Ausrichtung prüfen** | Plausibilitätsprüfung beim Einlesen: Die Tabelle wird in beiden Richtungen gelesen; stehen Positionen in Spalten und Felder in Zeilen, wird automatisch getauscht (Hinweis + Schalter „Zeilen und Spalten tauschen“ im Import-Dialog) |
+| **Kurse** | Beim Einfügen einer Position (Einlesen oder „+ Position“) wird einmalig der aktuelle Kurs von onvista geholt – bevorzugt in Euro an Xetra/Tradegate/gettex; fehlt der Wert, wird er aus Stückzahl × Kurs berechnet |
 | **Spalten korrigieren** | Im Import-Dialog jede Spalte mit Beispielwerten sehen und ihre Bedeutung per Auswahl ändern – die Positionen werden sofort neu eingelesen |
 | **Automatische Erkennung** | Kopfzeile auch unter Vorspann-Zeilen, Spaltenbedeutung (ISIN, WKN, Name, Wert, Gewicht, Stück, Kurs, Währung, Typ), gedrehte Tabellen (Felder in Zeilen), deutsches/englisches Zahlenformat, Gewicht als Bruch oder %, Summenzeilen werden ignoriert, mehrere Tabellenblätter → das passendste wird gewählt |
 | **Asset-Erkennung** | ISIN mit Prüfziffer, WKN (bei deutschen ISINs automatisch abgeleitet), Typ (Aktie, ETF, Fonds, ETC, Anleihe, Krypto, Rohstoff, Cash), Land; ISIN im Namen („Apple Inc. (US0378331005)“) |
