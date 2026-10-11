@@ -135,7 +135,7 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   const offTypes = new Set(settings.newsOffTypes || []);
   positions = positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash' && !offTypes.has(p.type || 'Sonstiges') && (p.weight || 0) >= minWeight
     && splitTerms(p.searchTerm || p.name).length);
-  if (!positions.length) return { items: [], errors: [`Keine Position ab ${minWeight} % Gewichtung mit eingeschalteten News.`], poolInfo };
+  if (!positions.length) return { items: [], errors: [`Keine Position ab ${String(minWeight).replace(".", ",")} % Gewichtung mit eingeschalteten News.`], poolInfo };
   if (!enabledSources.length) return { items: [], errors: ['Keine Nachrichtenquelle aktiv (siehe „Quellen“).'], poolInfo };
 
   onProgress(0, 2);

@@ -8,7 +8,7 @@ import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.0.1';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -226,7 +226,7 @@ function renderLookup() {
       ${top.has(p.id) ? '' : `<p class="muted small hit-note">${p.newsEnabled === false
         ? 'Für diese Position sind News abgeschaltet (Schalter unter „Depot“).'
         : newsOffTypes().has(p.type || 'Sonstiges') ? `Keine News: News für Typ „${esc(p.type || 'Sonstiges')}“ sind ausgeschaltet (unter „Depot“).`
-        : `Keine News: Gewichtung unter ${esc(String(state.settings.watchMinWeight))} % (unter „Mehr“ einstellbar).`}</p>`}
+        : `Keine News: Gewichtung unter ${esc(pctText(state.settings.watchMinWeight))} % (unter „Mehr“ einstellbar).`}</p>`}
     </div>`;
   }).join('') + (hits.length > 5 ? `<p class="muted small">… und ${hits.length - 5} weitere</p>` : '');
 }
@@ -270,7 +270,7 @@ function renderDepot() {
     <li class="pos-row ${newsOn(p) && topIds.has(p.id) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
       <div class="pos-main">
         <span class="pos-name">${esc(p.name)}</span>
-        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? (off.has(p.type || 'Sonstiges') ? ` · News für ${esc(p.type || 'Sonstiges')} aus` : ` · unter ${esc(String(state.settings.watchMinWeight))} %`) : ''}</span>
+        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? (off.has(p.type || 'Sonstiges') ? ` · News für ${esc(p.type || 'Sonstiges')} aus` : ` · unter ${esc(pctText(state.settings.watchMinWeight))} %`) : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
       <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span>${p.priceAt ? `<span class="muted tiny">${esc(fmtQuote(p))}</span>` : ''}</div>
@@ -314,6 +314,13 @@ function renderSources() {
   $('#sourceList').innerHTML = html;
 }
 
+/** Prozentwert aus einem Eingabefeld lesen: Komma oder Punkt, 0–100; ungültig → bisheriger Wert. */
+function readPct(v, fallback) {
+  const n = Number(String(v ?? '').trim().replace('%', '').replace(/\s/g, '').replace(',', '.'));
+  return v !== '' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : fallback;
+}
+const pctText = n => String(Number(n) || 0).replace('.', ',');
+
 async function renderSettings() {
   const f = $('#settingsForm');
   const s = state.settings;
@@ -328,8 +335,8 @@ async function renderSettings() {
   f.autoRefreshMin.value = String(s.autoRefreshMin);
   f.askOnStart.checked = s.askOnStart;
   f.notify.checked = s.notify && ('Notification' in window) && Notification.permission === 'granted';
-  f.notifyMinWeight.value = s.notifyMinWeight;
-  f.watchMinWeight.value = s.watchMinWeight;
+  f.notifyMinWeight.value = pctText(s.notifyMinWeight);
+  f.watchMinWeight.value = pctText(s.watchMinWeight);
   renderWatchList();
   f.maxImport.value = s.maxImport ?? 2000;
   let hint = '';
@@ -1295,6 +1302,11 @@ function bindEvents() {
   });
 
   // Einstellungen
+  // Eingabe mit „Fertig“/Return übernehmen (iOS löst „change“ erst beim Verlassen des Feldes aus)
+  $('#settingsForm').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.matches('input[inputmode=decimal], input[type=number]')) { e.preventDefault(); e.target.blur(); }
+  });
+  $('#settingsForm').addEventListener('submit', e => e.preventDefault());
   $('#settingsForm').addEventListener('change', async e => {
     const f = e.currentTarget;
     const s = state.settings;
@@ -1304,10 +1316,10 @@ function bindEvents() {
     s.bucket = f.bucket.value;
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
-    s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
+    s.notifyMinWeight = readPct(f.notifyMinWeight.value, s.notifyMinWeight);
     s.maxImport = Math.max(1, Math.round(Number(f.maxImport.value) || 2000));
     const oldMin = s.watchMinWeight;
-    s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
+    s.watchMinWeight = readPct(f.watchMinWeight.value, s.watchMinWeight);
     if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste
     if (e.target.name === 'notify') {
       if (f.notify.checked) {

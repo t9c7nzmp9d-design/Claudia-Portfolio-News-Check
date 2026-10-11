@@ -156,16 +156,16 @@
 
         <h2>Suchliste</h2>
         <label>News für Positionen ab Gewichtung (%)
-          <input name="watchMinWeight" type="number" min="0" max="100" step="0.5">
+          <input name="watchMinWeight" type="text" inputmode="decimal" autocomplete="off" placeholder="z. B. 0,5">
         </label>
         <p class="muted small">Die Suchliste (Positionen und Suchbegriffe) bleibt nur auf diesem Gerät. Die App lädt
-          allgemeine Wirtschafts-Schlagzeilen und sucht darin lokal nach diesen Positionen. 0 = alle Positionen.</p>
+          allgemeine Wirtschafts-Schlagzeilen und sucht darin lokal nach diesen Positionen. 0 = alle Positionen; Kommawerte wie 0,5 oder 0,25 sind möglich.</p>
         <div id="watchList"></div>
 
         <h2>Benachrichtigungen</h2>
         <label class="check"><input type="checkbox" name="notify"> Bei neuen News benachrichtigen</label>
         <label>Nur für Positionen ab Gewichtung (%)
-          <input name="notifyMinWeight" type="number" min="0" max="100" step="0.5">
+          <input name="notifyMinWeight" type="text" inputmode="decimal" autocomplete="off" placeholder="z. B. 0,5">
         </label>
         <p id="notifyHint" class="muted small"></p>
         <button id="testNotifyBtn" class="btn" type="button">Test-Benachrichtigung</button>
