@@ -150,9 +150,12 @@
 
         <h2>Einlesen</h2>
         <label>Höchstens … Positionen einlesen (die ersten der Tabelle)
-          <input name="maxImport" type="number" min="1" step="100" inputmode="numeric">
+          <input name="maxImport" type="number" min="1" step="1" inputmode="numeric">
         </label>
         <p class="muted small">Standard 2000. Weitere Zeilen der Tabelle werden beim Einlesen übergangen.</p>
+        <button class="btn prompt-open" type="button">📷 Tabelle aus Depot-Screenshot erstellen (Prompt für Claude)</button>
+        <p class="muted small">Für ein beliebiges Depot, von dem du nur Screenshots hast (Bank-App, Broker-Website, Depotauszug):
+          Claude erstellt daraus eine CSV mit aufgelösten Fonds, die du hier einliest.</p>
 
         <h2>Suchliste</h2>
         <label>News für Positionen ab Gewichtung (%)
@@ -222,11 +225,14 @@
           Auf diesem Gerät (z. B. iPhone/Safari) kann der Browser kein Verzeichnis dauerhaft verbinden – wähle stattdessen
           die Datei direkt, z. B. aus „Dateien“ / iCloud Drive.</span></li>
         <li>Oder <strong>eine Datei hochladen</strong>.</li>
+        <li>Keine Tabelle, nur ein <strong>Screenshot</strong>? Claude macht aus Screenshots eines beliebigen Depots
+          (Bank, Broker, Fondsdepot …) eine passende Tabelle – Fonds und ETFs in Einzeltitel aufgelöst.</li>
         <li>Oder <strong>überspringen</strong> und mit der Mustertabelle starten.</li>
       </ol>
       <div class="btn-col">
         <button id="obDirBtn" class="btn primary" type="button">📁 Verzeichnis wählen</button>
         <button id="obFileBtn" class="btn primary" type="button">📄 Tabelle hochladen</button>
+        <button class="btn prompt-open" type="button">📷 Tabelle aus Screenshot (Prompt für Claude)</button>
         <button id="obRestoreBtn" class="btn" type="button">💾 Sicherung laden</button>
         <button id="obSkipBtn" class="btn ghost" type="button">Überspringen – Musterdepot verwenden</button>
       </div>
@@ -308,6 +314,30 @@
   </dialog>
 
   <!-- Hinweis Sortierung -->
+  <dialog id="promptDlg" class="dlg dlg-wide">
+    <form method="dialog" class="dlg-body">
+      <h2>Tabelle aus Depot-Screenshots (mit Claude)</h2>
+      <p class="small">Für ein <strong>beliebiges Depot</strong> – z. B. aus der App oder Website deiner Bank oder deines Brokers,
+        auch mehrere Depots oder Seiten. Claude liest die Positionen, löst Fonds und ETFs in Einzeltitel auf und liefert eine CSV.</p>
+      <ol class="small">
+        <li>Screenshots des Depots machen (alle Seiten bzw. ganz durchscrollen).</li>
+        <li>Prompt kopieren, in Claude einen neuen Chat öffnen, <strong>Recherche (Research)</strong> einschalten, Screenshots anhängen und Prompt einfügen.</li>
+        <li>Die fertige Datei <em>depot-aufgeloest.csv</em> speichern und hier mit „Datei einlesen“ bzw. „Tabelle hochladen“ laden.</li>
+      </ol>
+      <label>Höchstens … Zeilen (Einzeltitel)
+        <input id="promptRows" type="number" min="10" step="any" inputmode="numeric">
+      </label>
+      <textarea id="promptText" class="prompt-text" rows="12" readonly></textarea>
+      <p class="muted small">Die App sendet dabei nichts. Screenshot und Prompt gibst du selbst an Claude (Anthropic) weiter –
+        Name, Kontonummer und Ähnliches vorher am besten abdecken.</p>
+      <div class="btn-row">
+        <button id="promptCopy" class="btn primary" type="button">Prompt kopieren</button>
+        <a id="promptOpen" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude öffnen</a>
+        <button class="btn ghost" value="cancel" formnovalidate>Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="rankDlg" class="dlg">
     <form method="dialog" class="dlg-body">
       <h2>So wird sortiert</h2>
