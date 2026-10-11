@@ -8,7 +8,7 @@ import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -311,6 +311,7 @@ async function renderSettings() {
   f.notify.checked = s.notify && ('Notification' in window) && Notification.permission === 'granted';
   f.notifyMinWeight.value = s.notifyMinWeight;
   f.watchMinWeight.value = s.watchMinWeight;
+  f.minValue.value = s.minValue ?? 10;
   let hint = '';
   if (!('Notification' in window)) {
     hint = isIOS && !isStandalone
@@ -341,6 +342,22 @@ function renderAll() {
 
 // ---------------------------------------------------------------- Import
 
+/** Eingelesene Position mit bekanntem Wert unter der Mindestgrenze (unter „Mehr“ einstellbar)? */
+function belowMin(p) {
+  const min = Number(state.settings.minValue) || 0;
+  return min > 0 && !p.manual && Number.isFinite(p.value) && p.value < min;
+}
+
+/** Entfernt eingelesene Positionen unter der Mindestgrenze; gibt die entfernten zurück. */
+function removeBelowMin() {
+  const gone = state.portfolio.positions.filter(belowMin);
+  if (gone.length) {
+    state.portfolio.positions = state.portfolio.positions.filter(p => !belowMin(p));
+    recomputeWeights(state.portfolio.positions);
+  }
+  return gone;
+}
+
 function keyMatches(a, b) {
   return (a.isin && a.isin === b.isin) || (a.wkn && a.wkn === b.wkn) || (a.symbol && a.symbol === b.symbol)
     || (!a.isin && !b.isin && norm(a.name) === norm(b.name));
@@ -358,7 +375,9 @@ function applyImport(res, mode, kind) {
       searchTermCustom: !!o.searchTermCustom,
       newsEnabled: p.newsChoice ?? o.newsEnabled !== false,
       type: o.typeCustom ? o.type : p.type,
-      typeCustom: !!o.typeCustom
+      typeCustom: !!o.typeCustom,
+      // Kurs wurde schon einmal geholt → nicht erneut abfragen
+      ...(o.priceAt || o.priceTried ? { priceTried: true, priceAt: o.priceAt, priceCurrency: o.priceCurrency, priceMarket: o.priceMarket, price: p.price ?? o.price } : {})
     };
   });
   let result;
@@ -369,8 +388,12 @@ function applyImport(res, mode, kind) {
     result = [...incoming, ...old.filter(o => o.manual && !incoming.some(n => n.id === o.id))];
   }
   for (const r of result) delete r.newsChoice;
+  // Positionen unter der Mindestgrenze (Standard 10 €) nicht übernehmen bzw. entfernen
+  const dropped = result.filter(belowMin);
+  result = result.filter(p => !belowMin(p));
   recomputeWeights(result);
   state.portfolio.positions = result;
+  if (dropped.length) setTimeout(() => toast(`${dropped.length} Position${dropped.length === 1 ? '' : 'en'} unter ${state.settings.minValue} € nicht übernommen.`, 5000), 900);
   state.portfolio.source = {
     kind, fileName: res.fileName, lastModified: res.lastModified, importedAt: Date.now(),
     sheet: res.sheet, sheetCount: res.sheetCount, mapping: res.mapping, transposed: res.transposed
@@ -393,8 +416,9 @@ function importReportHtml(res, { colsOpen = false } = {}) {
     p.newsChoice ??= o ? o.newsEnabled !== false : p.type !== 'Cash';
   }
   const hasMoney = res.positions.some(p => Number.isFinite(p.value));
+  const dropped = res.positions.filter(belowMin);
   const rows = res.positions.map((p, i) => ({ p, i })).sort((a, b) => (b.p.weight || 0) - (a.p.weight || 0)).map(({ p, i }) =>
-    `<tr><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}</div></td>
+    `<tr class="${belowMin(p) ? 'dropped' : ''}"><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}${belowMin(p) ? ` · <span class="warn-text">unter ${esc(String(state.settings.minValue))} € – wird nicht übernommen</span>` : ''}</div></td>
       ${hasMoney ? `<td class="num">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '–')}</td>` : ''}
       <td class="num">${esc(fmtPercent(p.weight))}</td>
       <td class="num">${newsSwitch(String(i), p.newsChoice, p.name, 'data-imp')}</td></tr>`).join('');
@@ -414,6 +438,7 @@ function importReportHtml(res, { colsOpen = false } = {}) {
     : '';
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
       <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.</p>
+    ${dropped.length ? `<p class="small warn-text">${dropped.length} Position${dropped.length === 1 ? '' : 'en'} mit einem Wert unter ${esc(String(state.settings.minValue))} € ${dropped.length === 1 ? 'wird' : 'werden'} nicht übernommen (unter „Mehr“ einstellbar): ${esc(dropped.map(p => p.name).join(', '))}.</p>` : ''}
     ${res.autoTransposed || res.orientationCorrected ? `<p class="small ok-text">✓ Plausibilitätsprüfung: ${res.transposed
       ? 'Die Tabelle hat Felder in Zeilen und Positionen in Spalten – Zeilen und Spalten wurden automatisch getauscht.'
       : 'Zeilen und Spalten sind richtig ausgerichtet – eine Drehung wurde geprüft und verworfen.'}</p>` : ''}
@@ -460,7 +485,9 @@ function updateImpCount() {
   const ps = pendingImport?.res.positions || [];
   const okBtn = $('#importDlg button[value=ok]');
   if (okBtn) okBtn.disabled = !ps.length;
-  if (ps.length) $('#impCount').textContent = `News für ${ps.filter(p => p.newsChoice).length} von ${ps.length} Positionen`;
+  const kept = ps.filter(p => !belowMin(p));
+  if (okBtn) okBtn.disabled = !kept.length;
+  if (ps.length) $('#impCount').textContent = `News für ${kept.filter(p => p.newsChoice).length} von ${kept.length} übernommenen Positionen`;
 }
 
 async function handleFile(file, { auto = false, kind = 'file' } = {}) {
@@ -696,10 +723,11 @@ function fetchMissingQuotes() {
       }
     }));
     recomputeWeights(state.portfolio.positions);
+    const gone = removeBelowMin(); // Werte aus Stückzahl × Kurs können unter der Grenze liegen
     save(true);
     renderAll();
     if (!$('#view-depot').hidden) renderDepot();
-    toast(`${ok} von ${todo.length} Kursen geladen.`);
+    toast(`${ok} von ${todo.length} Kursen geladen.${gone.length ? ` ${gone.length} Position(en) unter ${state.settings.minValue} € entfernt.` : ''}`);
   })().finally(() => { quoteRun = null; status(); });
   return quoteRun;
 }
@@ -1154,6 +1182,17 @@ function bindEvents() {
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
     s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
+    const oldMinValue = Number(s.minValue) || 0;
+    s.minValue = Math.max(0, Number(String(f.minValue.value).replace(',', '.')) || 0);
+    if (s.minValue > oldMinValue) {
+      const affected = state.portfolio.positions.filter(belowMin);
+      if (affected.length && confirm(`${affected.length} eingelesene Position(en) liegen unter ${s.minValue} €:\n${affected.map(p => p.name).join(', ')}\n\nJetzt entfernen?`)) {
+        removeBelowMin();
+        save(true);
+        renderAll();
+        toast(`${affected.length} Position(en) entfernt.`);
+      }
+    }
     const oldMin = s.watchMinWeight;
     s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
     if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste

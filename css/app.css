@@ -271,3 +271,4 @@ table.cols select { min-height: 36px; padding: 4px 8px; font-size: .85rem; width
 table.cols td { vertical-align: top; }
 table.cols td:last-child { width: 46%; }
 .tiny { font-size: .72rem; }
+tr.dropped td { opacity: .5; } tr.dropped b { text-decoration: line-through; }
