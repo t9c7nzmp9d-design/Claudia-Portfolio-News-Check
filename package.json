@@ -1,0 +1,12 @@
+{
+  "name": "portfolio-news-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Private, nicht-kommerzielle Web-App: Depot-Datei lokal einlesen und gewichtete News zu den Positionen anzeigen.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "start": "python3 -m http.server 8080"
+  }
+}

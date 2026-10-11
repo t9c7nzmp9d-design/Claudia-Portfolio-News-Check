@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Depot-News</title>
+  <meta name="description" content="Private Web-App: Depot-Datei lokal einlesen und aktuelle, nach Gewichtung sortierte News zu den Positionen sehen.">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Depot-News">
+  <meta name="referrer" content="no-referrer">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="vendor/xlsx.full.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-text">
+      <h1>Depot-News</h1>
+      <p id="portfolioSummary" class="muted small">–</p>
+    </div>
+    <button id="refreshBtn" class="icon-btn" aria-label="News aktualisieren" title="News aktualisieren">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main>
+    <!-- NEWS -->
+    <section id="view-news" class="view" data-view="news">
+      <div class="card lookup">
+        <label for="lookupInput" class="label">Position nachschlagen</label>
+        <div class="lookup-row">
+          <input id="lookupInput" type="search" inputmode="search" autocomplete="off" autocapitalize="characters"
+                 placeholder="WKN, ISIN oder Name" list="lookupList">
+          <datalist id="lookupList"></datalist>
+        </div>
+        <div class="toggle-row">
+          <span class="muted small">Anzeige</span>
+          <span class="toggle-label" data-for="percent">%</span>
+          <label class="switch" title="Zwischen Prozent und Wert umschalten">
+            <input id="modeSwitch" type="checkbox" role="switch" aria-label="Wert statt Prozent anzeigen">
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label" data-for="value">€ Wert</span>
+        </div>
+        <div id="lookupResult" aria-live="polite"></div>
+      </div>
+
+      <div class="status-row">
+        <span id="newsStatus" class="muted small">Noch nicht aktualisiert</span>
+        <button id="rankInfoBtn" class="link-btn small" type="button">Sortierung?</button>
+      </div>
+      <div id="progress" class="progress" hidden><div class="bar"></div></div>
+      <div id="filterChip"></div>
+      <div id="newsErrors"></div>
+      <div id="newsList"></div>
+    </section>
+
+    <!-- DEPOT -->
+    <section id="view-depot" class="view" data-view="depot" hidden>
+      <div class="card">
+        <div class="row-between">
+          <div>
+            <h2 id="depotName">Mein Depot</h2>
+            <p id="depotMeta" class="muted small"></p>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="importBtn" class="btn primary" type="button">Datei einlesen</button>
+          <button id="addPosBtn" class="btn" type="button">+ Position</button>
+          <button id="exportPosBtn" class="btn" type="button">Exportieren</button>
+        </div>
+      </div>
+      <div class="row-between list-head">
+        <input id="depotFilter" type="search" placeholder="Filtern …" aria-label="Positionen filtern">
+        <select id="depotSort" aria-label="Sortierung">
+          <option value="weight">nach Gewichtung</option>
+          <option value="name">nach Name</option>
+          <option value="type">nach Typ</option>
+        </select>
+      </div>
+      <ul id="positionList" class="pos-list"></ul>
+    </section>
+
+    <!-- QUELLEN -->
+    <section id="view-sources" class="view" data-view="sources" hidden>
+      <div class="card">
+        <h2>Nachrichtenquellen</h2>
+        <p class="muted small">Es werden nur Artikel aus aktivierten Quellen angezeigt. Vorgeschlagen sind Nachrichtenagenturen,
+          Qualitäts- und Wirtschaftsmedien. Eigene Quellen kannst du unten ergänzen.</p>
+      </div>
+      <div id="sourceList"></div>
+      <form id="sourceForm" class="card form">
+        <h3>Eigene Quelle hinzufügen</h3>
+        <label>Name <input name="name" required placeholder="z. B. Börsen-Zeitung"></label>
+        <label>Website / Domain <input name="domain" required placeholder="z. B. boersen-zeitung.de" inputmode="url" autocapitalize="off"></label>
+        <label>Sprache
+          <select name="lang"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="any">beliebig</option></select>
+        </label>
+        <label>RSS-Feed (optional) <input name="rss" placeholder="https://…/rss.xml" inputmode="url" autocapitalize="off"></label>
+        <p class="muted small">RSS-Feeds lassen sich im Browser meist nur über einen CORS-Proxy abrufen (siehe Einstellungen).</p>
+        <button class="btn primary" type="submit">Quelle hinzufügen</button>
+      </form>
+      <button id="resetSourcesBtn" class="btn ghost" type="button">Vorschläge wiederherstellen</button>
+    </section>
+
+    <!-- MEHR -->
+    <section id="view-more" class="view" data-view="more" hidden>
+      <form id="settingsForm" class="card form">
+        <h2>News-Einstellungen</h2>
+        <label>Nachrichtendienst
+          <select name="provider">
+            <option value="gdelt">GDELT (ohne Schlüssel, direkt)</option>
+            <option value="gnews">Google News RSS (benötigt CORS-Proxy)</option>
+          </select>
+        </label>
+        <label>CORS-Proxy (optional)
+          <input name="proxyUrl" placeholder="https://mein-proxy.workers.dev/?url={url}" inputmode="url" autocapitalize="off">
+        </label>
+        <fieldset class="inline">
+          <legend>Sprachen</legend>
+          <label class="check"><input type="checkbox" name="lang_de"> Deutsch</label>
+          <label class="check"><input type="checkbox" name="lang_en"> Englisch</label>
+        </fieldset>
+        <label>Zeitraum
+          <select name="timespanDays">
+            <option value="1">24 Stunden</option><option value="3">3 Tage</option><option value="7">7 Tage</option>
+            <option value="14">14 Tage</option><option value="30">30 Tage</option>
+          </select>
+        </label>
+        <label>News für die größten … Positionen
+          <input name="maxPositions" type="number" min="1" max="100" step="1">
+        </label>
+        <label>Zeitfenster für die Sortierung
+          <select name="bucket">
+            <option value="hour">pro Stunde</option><option value="6h">pro 6 Stunden</option>
+            <option value="day">pro Tag</option><option value="none">exakt nach Zeit</option>
+          </select>
+        </label>
+        <label>Automatisch aktualisieren (bei geöffneter App)
+          <select name="autoRefreshMin">
+            <option value="0">aus</option><option value="15">alle 15 Min.</option><option value="30">alle 30 Min.</option><option value="60">stündlich</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" name="askOnStart"> Beim Start nach neuer Depot-Datei fragen</label>
+
+        <h2>Benachrichtigungen</h2>
+        <label class="check"><input type="checkbox" name="notify"> Bei neuen News benachrichtigen</label>
+        <label>Nur für Positionen ab Gewichtung (%)
+          <input name="notifyMinWeight" type="number" min="0" max="100" step="0.5">
+        </label>
+        <p id="notifyHint" class="muted small"></p>
+        <button id="testNotifyBtn" class="btn" type="button">Test-Benachrichtigung</button>
+      </form>
+
+      <div class="card form">
+        <h2>Datensicherung</h2>
+        <p id="backupInfo" class="muted small"></p>
+        <div class="btn-row">
+          <button id="backupBtn" class="btn primary" type="button">Sicherung speichern</button>
+          <button id="restoreBtn" class="btn" type="button">Sicherung laden</button>
+        </div>
+        <h3>Lokales Verzeichnis</h3>
+        <p id="dirInfo" class="muted small"></p>
+        <div class="btn-row">
+          <button id="chooseDirBtn" class="btn" type="button">Verzeichnis wählen</button>
+          <button id="forgetDirBtn" class="btn ghost" type="button">Trennen</button>
+        </div>
+        <label class="check"><input type="checkbox" id="autoBackupChk"> Automatische Sicherung ins Verzeichnis</label>
+      </div>
+
+      <div class="card">
+        <h2>Info</h2>
+        <p class="small">Private, nicht-kommerzielle Anwendung. Alle Depotdaten bleiben auf diesem Gerät.
+          Keine Anlageberatung.</p>
+        <ul class="links">
+          <li><a href="datenschutz.html">Datenschutz</a></li>
+          <li><a href="sample/Musterdepot.xlsx" download>Musterdatei (Excel)</a> · <a href="sample/Musterdepot.csv" download>CSV</a> · <a href="sample/Musterdepot_Bank-Export.csv" download>Bank-Export-Beispiel</a></li>
+          <li><a id="repoLink" href="https://github.com/t9c7nzmp9d-design/Claudia-Portfolio-News-Check" rel="noopener">Quellcode &amp; Anleitung (README)</a></li>
+        </ul>
+        <div class="btn-row">
+          <button id="onboardAgainBtn" class="btn" type="button">Einrichtung erneut starten</button>
+          <button id="wipeBtn" class="btn danger" type="button">Alle Daten löschen</button>
+        </div>
+        <p class="muted small" id="versionInfo"></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Hauptnavigation">
+    <button data-tab="news" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h13v14H6a2 2 0 0 1-2-2zM17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7M7 16h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>News</span></button>
+    <button data-tab="depot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z M14 2.5V10h7.5A8 8 0 0 0 14 2.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Depot</span></button>
+    <button data-tab="sources"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19a1 1 0 1 0 0-.01M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Quellen</span></button>
+    <button data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Mehr</span></button>
+  </nav>
+
+  <!-- Einrichtung -->
+  <dialog id="onboardDlg" class="dlg">
+    <form method="dialog" class="dlg-body">
+      <h2>Willkommen 👋</h2>
+      <p>Diese App liest deine Depot-Tabelle <strong>lokal</strong> ein (CSV, Excel oder Apple Numbers), erkennt die
+        Wertpapiere und zeigt aktuelle News – sortiert nach Aktualität und Gewichtung.</p>
+      <ol class="steps">
+        <li><strong>Verzeichnis wählen</strong>, in dem deine Depot-Tabelle liegt – die App liest die neueste Tabelle
+          automatisch ein und legt dort Sicherungen ab.<span id="dirUnsupported" class="muted small" hidden><br>
+          Auf diesem Gerät (z. B. iPhone/Safari) kann der Browser kein Verzeichnis dauerhaft verbinden – wähle stattdessen
+          die Datei direkt, z. B. aus „Dateien“ / iCloud Drive.</span></li>
+        <li>Oder <strong>eine Datei hochladen</strong>.</li>
+        <li>Oder <strong>überspringen</strong> und mit der Mustertabelle starten.</li>
+      </ol>
+      <div class="btn-col">
+        <button id="obDirBtn" class="btn primary" type="button">📁 Verzeichnis wählen</button>
+        <button id="obFileBtn" class="btn primary" type="button">📄 Tabelle hochladen</button>
+        <button id="obSkipBtn" class="btn ghost" type="button">Überspringen – Musterdepot verwenden</button>
+      </div>
+      <p class="muted small">Muster zum Ansehen: <a href="sample/Musterdepot.xlsx" download>Musterdepot.xlsx</a> ·
+        <a href="sample/Musterdepot.csv" download>CSV</a>. Deine Daten verlassen das Gerät nicht –
+        nur die Suchbegriffe (z. B. „SAP“) werden an den Nachrichtendienst gesendet. <a href="datenschutz.html">Datenschutz</a></p>
+    </form>
+  </dialog>
+
+  <!-- Import-Ergebnis -->
+  <dialog id="importDlg" class="dlg">
+    <form method="dialog" class="dlg-body">
+      <h2>Tabelle erkannt</h2>
+      <div id="importReport"></div>
+      <fieldset class="inline">
+        <legend>Übernehmen als</legend>
+        <label class="check"><input type="radio" name="mode" value="replace" checked> Ersetzen</label>
+        <label class="check"><input type="radio" name="mode" value="merge"> Zusammenführen</label>
+      </fieldset>
+      <p class="muted small">„Ersetzen“ behält deine angepassten Suchbegriffe und manuell angelegte Positionen.
+        „Zusammenführen“ aktualisiert vorhandene Positionen und ergänzt neue, ohne andere zu entfernen.</p>
+      <div class="btn-row">
+        <button value="cancel" class="btn ghost">Abbrechen</button>
+        <button value="ok" class="btn primary">Übernehmen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Position bearbeiten -->
+  <dialog id="posDlg" class="dlg">
+    <form id="posForm" method="dialog" class="dlg-body form">
+      <h2 id="posDlgTitle">Position</h2>
+      <label>Name <input name="name" required></label>
+      <div class="grid2">
+        <label>ISIN <input name="isin" autocapitalize="characters" maxlength="12"></label>
+        <label>WKN <input name="wkn" autocapitalize="characters" maxlength="6"></label>
+      </div>
+      <div class="grid2">
+        <label>Ticker/Symbol <input name="symbol" autocapitalize="characters"></label>
+        <label>Typ <select name="type"></select></label>
+      </div>
+      <div class="grid2">
+        <label>Wert (€) <input name="value" inputmode="decimal"></label>
+        <label>Gewichtung (%) <input name="weight" inputmode="decimal"></label>
+      </div>
+      <div class="grid2">
+        <label>Stückzahl <input name="quantity" inputmode="decimal"></label>
+        <label>Kurs <input name="price" inputmode="decimal"></label>
+      </div>
+      <p id="weightHint" class="muted small"></p>
+      <label>Suchbegriff(e) für News
+        <input name="searchTerm" placeholder="z. B. SAP OR SAP SE">
+      </label>
+      <p class="muted small">Mehrere Begriffe mit „OR“ trennen. <button id="suggestTermBtn" type="button" class="link-btn small">Vorschlag übernehmen</button></p>
+      <label class="check"><input type="checkbox" name="newsEnabled"> News für diese Position abrufen</label>
+      <p id="isinCheck" class="small"></p>
+      <div class="btn-row">
+        <button id="deletePosBtn" type="button" class="btn danger">Löschen</button>
+        <span class="spacer"></span>
+        <button value="cancel" formnovalidate class="btn ghost">Abbrechen</button>
+        <button value="ok" class="btn primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Hinweis Sortierung -->
+  <dialog id="rankDlg" class="dlg">
+    <form method="dialog" class="dlg-body">
+      <h2>So wird sortiert</h2>
+      <ol>
+        <li><strong>Aktualität:</strong> News werden in Zeitfenster (Standard: pro Tag) eingeteilt – das neueste Fenster steht oben.</li>
+        <li><strong>Gewichtung:</strong> Innerhalb eines Zeitfensters stehen News zu deinen größten Positionen zuerst.</li>
+      </ol>
+      <p class="small muted">Das Zeitfenster kannst du unter „Mehr“ ändern (Stunde, 6 Stunden, Tag oder exakt nach Zeit).
+        Es werden nur Artikel aus aktivierten Quellen gezeigt, deren Überschrift die Position nennt.</p>
+      <div class="btn-row"><button class="btn primary">Verstanden</button></div>
+    </form>
+  </dialog>
+
+  <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.xlsm,.ods,.numbers,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/x-iwork-numbers-sffnumbers" hidden>
+  <input id="backupInput" type="file" accept=".json,application/json" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

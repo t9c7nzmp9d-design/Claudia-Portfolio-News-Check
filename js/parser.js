@@ -1,0 +1,360 @@
+// Einlesen von CSV, Excel (xlsx/xls/ods) und Apple Numbers – mit automatischer Erkennung
+// von Kopfzeile, Spaltenbedeutung, Ausrichtung (Zeilen/Spalten vertauscht) und Zahlenformat.
+
+import { parseNumber, norm, uid } from './util.js';
+import { ISIN_RE, isValidIsin, looksLikeWkn, recognize } from './assets.js';
+
+export const FIELD_LABELS = {
+  isin: 'ISIN / Kennung',
+  wkn: 'WKN',
+  symbol: 'Ticker / Symbol',
+  name: 'Name',
+  value: 'Wert',
+  weight: 'Gewichtung',
+  quantity: 'Stückzahl',
+  price: 'Kurs',
+  currency: 'Währung',
+  type: 'Typ'
+};
+
+// Muster für Spaltenüberschriften (auf normalisierten Text angewendet). Höherer Score gewinnt.
+const HEADER_PATTERNS = {
+  isin: [[/^isin$/, 10], [/\bisin\b/, 9], [/\b(kennung|identifier|kennnummer|id)\b/, 4]],
+  wkn: [[/^wkn$/, 10], [/\bwkn\b|wertpapierkenn|valor|valoren/, 9]],
+  symbol: [[/\b(ticker|symbol|kuerzel|boersenkuerzel)\b/, 8]],
+  name: [[/^(name|bezeichnung|titel|wertpapier|asset|instrument)$/, 10],
+    [/\b(name|bezeichnung|wertpapiername|wertpapier|titel|asset|instrument|security|holding|beschreibung|description|produkt|position)\b/, 7]],
+  value: [[/\b(marktwert|kurswert|depotwert|positionswert|bestandswert|gesamtwert|market value|current value)\b/, 10],
+    [/^wert\b|\bwert in\b|\bwert eur\b/, 9], [/\b(wert|value|betrag|amount|volumen|eur|summe)\b/, 6]],
+  weight: [[/\b(gewicht|gewichtung|weight|weighting|allocation|allokation|portfolioanteil|depotanteil)\b/, 10],
+    [/\b(anteil|quote|prozent|percent|share of)\b/, 7]],
+  quantity: [[/\b(stueck|stuck|stueckzahl|anzahl|menge|quantity|qty|shares|units|nominal|bestand|anteile)\b/, 9]],
+  price: [[/\b(kurs|preis|price|kurs eur|last|letzter kurs|aktueller kurs)\b/, 7]],
+  currency: [[/\b(waehrung|wahrung|currency|ccy|whg)\b/, 9]],
+  type: [[/\b(typ|type|art|gattung|anlageklasse|asset class|assetklasse|kategorie|category|wertpapierart)\b/, 8]]
+};
+// Spalten mit diesen Begriffen sind keine Gewichtung (sondern z. B. Performance in %)
+const NOT_WEIGHT = /\b(perf|performance|veraenderung|change|gewinn|verlust|g v|guv|rendite|entwicklung|diff|differenz|plus|minus|ytd|dividende|yield|ter|kosten)\b/;
+const NOT_VALUE = /\b(einstand|kaufwert|einstandswert|cost|kaufkurs|einstandskurs|buy)\b/;
+const TOTAL_ROW = /^(summe|gesamt|gesamtsumme|total|sum|zwischensumme|depotsumme|grand total|gesamtwert)\b/;
+
+function headerScore(cell) {
+  const raw = String(cell ?? '');
+  const n = norm(raw);
+  if (!n) return null;
+  let best = null;
+  for (const [field, pats] of Object.entries(HEADER_PATTERNS)) {
+    for (const [re, score] of pats) {
+      if (!re.test(n)) continue;
+      let s = score;
+      if (field === 'weight' && NOT_WEIGHT.test(n)) s = 0;
+      if (field === 'value' && (NOT_VALUE.test(n) || NOT_WEIGHT.test(n))) s = 0;
+      if (field === 'price' && /wert/.test(n)) s = 0; // "Kurswert" ist ein Wert, kein Kurs
+      if (field === 'name' && /\b(wkn|isin|kennnummer|kennung)\b/.test(n)) s = 0;
+      if (s && (!best || s > best.score)) best = { field, score: s };
+    }
+  }
+  if (best && raw.includes('%') && best.field !== 'weight' && !NOT_WEIGHT.test(n)) {
+    // "Wert (in %)" o. ä. → Gewichtung
+    if (best.field === 'value') best = { field: 'weight', score: best.score };
+  }
+  if (!best && raw.includes('%') && !NOT_WEIGHT.test(n)) best = { field: 'weight', score: 5 };
+  return best;
+}
+
+/** Bewertet eine Zeile (Array) als mögliche Kopfzeile. */
+function scoreHeaderLine(cells) {
+  let score = 0;
+  const fields = new Set();
+  for (const c of cells) {
+    if (typeof c === 'number') { score -= 1; continue; }
+    const h = headerScore(c);
+    if (h && !fields.has(h.field)) { score += h.score; fields.add(h.field); }
+    if (typeof c === 'string' && ISIN_RE.test(c.toUpperCase()) && isValidIsin(c.trim())) score -= 5;
+  }
+  return { score, fieldCount: fields.size };
+}
+
+function transpose(rows) {
+  const w = Math.max(0, ...rows.map(r => r.length));
+  return Array.from({ length: w }, (_, c) => rows.map(r => r[c]));
+}
+
+function trimRows(rows) {
+  return rows
+    .map(r => (r || []).map(v => (typeof v === 'string' ? v.trim() : v)))
+    .filter(r => r.some(v => v !== null && v !== undefined && v !== ''));
+}
+
+/** Findet die beste Kopfzeile in Zeilen- oder Spaltenausrichtung. */
+function findHeader(rows) {
+  const scan = (rs) => {
+    let best = { index: -1, score: 0, fieldCount: 0 };
+    rs.slice(0, 30).forEach((r, i) => {
+      const s = scoreHeaderLine(r);
+      if (s.fieldCount >= 2 && s.score > best.score) best = { index: i, ...s };
+    });
+    return best;
+  };
+  const byRow = scan(rows);
+  const cols = transpose(rows);
+  const byCol = scan(cols);
+  if (byCol.score > byRow.score * 1.2 && byCol.fieldCount >= 2) {
+    return { rows: cols, header: byCol, transposed: true };
+  }
+  return { rows, header: byRow, transposed: false };
+}
+
+/** Ordnet jeder Spalte ein Feld zu (Kopfzeile + Inhaltsanalyse). */
+function mapColumns(headerCells, dataRows) {
+  const width = Math.max(headerCells.length, ...dataRows.map(r => r.length));
+  const candidates = [];
+  for (let c = 0; c < width; c++) {
+    const h = headerScore(headerCells[c]);
+    if (h) candidates.push({ col: c, ...h });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const mapping = {};
+  const used = new Set();
+  for (const cand of candidates) {
+    if (mapping[cand.field] !== undefined || used.has(cand.col)) continue;
+    mapping[cand.field] = cand.col;
+    used.add(cand.col);
+  }
+
+  // Inhaltsanalyse für fehlende oder ohne Kopfzeile
+  const stats = [];
+  for (let c = 0; c < width; c++) {
+    const vals = dataRows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== '');
+    const strs = vals.map(v => String(v).trim());
+    const nums = vals.map(v => parseNumber(v)).filter(v => v !== null);
+    stats.push({
+      col: c,
+      count: vals.length,
+      isinShare: strs.filter(s => isValidIsin(s.toUpperCase())).length / (vals.length || 1),
+      wknShare: strs.filter(s => looksLikeWkn(s)).length / (vals.length || 1),
+      numShare: nums.length / (vals.length || 1),
+      textShare: strs.filter(s => /[a-zA-ZäöüÄÖÜ]{3,}/.test(s) && parseNumber(s) === null).length / (vals.length || 1),
+      pctShare: strs.filter(s => /%\s*$/.test(s)).length / (vals.length || 1),
+      sum: nums.reduce((a, b) => a + b, 0),
+      max: nums.length ? Math.max(...nums) : 0,
+      avgLen: strs.reduce((a, s) => a + s.length, 0) / (strs.length || 1)
+    });
+  }
+  const free = s => !used.has(s.col) && s.count > 0;
+  const take = (field, s) => { if (s && mapping[field] === undefined) { mapping[field] = s.col; used.add(s.col); } };
+
+  if (mapping.isin === undefined) take('isin', stats.filter(free).filter(s => s.isinShare > 0.5).sort((a, b) => b.isinShare - a.isinShare)[0]);
+  if (mapping.wkn === undefined) take('wkn', stats.filter(free).filter(s => s.wknShare > 0.6 && s.isinShare < 0.2).sort((a, b) => b.wknShare - a.wknShare)[0]);
+  if (mapping.name === undefined) take('name', stats.filter(free).filter(s => s.textShare > 0.6).sort((a, b) => b.avgLen - a.avgLen)[0]);
+  if (mapping.weight === undefined) {
+    take('weight', stats.filter(free).filter(s => s.numShare > 0.7 && (s.pctShare > 0.5 || Math.abs(s.sum - 1) < 0.02 || Math.abs(s.sum - 100) < 2)).sort((a, b) => b.pctShare - a.pctShare)[0]);
+  }
+  if (mapping.value === undefined && mapping.quantity === undefined) {
+    take('value', stats.filter(free).filter(s => s.numShare > 0.7).sort((a, b) => b.sum - a.sum)[0]);
+  }
+  return mapping;
+}
+
+function isTotalRow(row, mapping) {
+  const name = norm(row[mapping.name] ?? '');
+  const id = norm(row[mapping.isin] ?? '');
+  const first = norm(row.find(v => typeof v === 'string' && v.trim()) ?? '');
+  return TOTAL_ROW.test(name) || TOTAL_ROW.test(id) || (!name && !id && TOTAL_ROW.test(first));
+}
+
+/**
+ * Wandelt eine Tabelle (Array von Zeilen) in Positionen um.
+ * Gibt { positions, mapping, transposed, headerRow, warnings } zurück.
+ */
+export function rowsToPositions(rawRows) {
+  const rows0 = trimRows(rawRows);
+  if (!rows0.length) return { positions: [], mapping: {}, warnings: ['Die Tabelle ist leer.'], score: 0 };
+  const { rows, header, transposed } = findHeader(rows0);
+  const hasHeader = header.index >= 0;
+  const headerCells = hasHeader ? rows[header.index] : [];
+  const dataRows = hasHeader ? rows.slice(header.index + 1) : rows;
+  const mapping = mapColumns(headerCells, dataRows);
+  const warnings = [];
+
+  if (mapping.name === undefined && mapping.isin === undefined && mapping.wkn === undefined && mapping.symbol === undefined) {
+    return { positions: [], mapping, transposed, warnings: ['Keine Spalte mit Namen, ISIN oder WKN gefunden.'], score: 0 };
+  }
+
+  // Spaltenweise erkennen, ob deutsches Zahlenformat genutzt wird ("1.234,56")
+  const decimalComma = {};
+  for (const f of ['value', 'weight', 'quantity', 'price']) {
+    const c = mapping[f];
+    if (c === undefined) continue;
+    const strs = dataRows.map(r => r[c]).filter(v => typeof v === 'string');
+    decimalComma[f] = strs.some(s => /\d,\d{1,2}\s*(%|€|eur)?$/i.test(s.trim()) || /\d\.\d{3},/.test(s));
+  }
+  const num = (row, f) => (mapping[f] === undefined ? null : parseNumber(row[mapping[f]], decimalComma[f]));
+  const str = (row, f) => (mapping[f] === undefined ? '' : String(row[mapping[f]] ?? '').trim());
+
+  const positions = [];
+  let weightIsPercentText = false;
+  for (const row of dataRows) {
+    if (isTotalRow(row, mapping)) continue;
+    const name = str(row, 'name');
+    let idRaw = str(row, 'isin');
+    let wkn = str(row, 'wkn');
+    let symbol = str(row, 'symbol');
+    if (!name && !idRaw && !wkn && !symbol) continue;
+    let isin = '';
+    if (wkn && !looksLikeWkn(wkn) && !symbol) { symbol = wkn; wkn = ''; }
+    if (idRaw) {
+      const up = idRaw.toUpperCase().replace(/\s/g, '');
+      if (ISIN_RE.test(up) && up.length === 12) isin = up;
+      else if (!wkn && looksLikeWkn(up)) wkn = up;
+      else if (!symbol) symbol = idRaw;
+    }
+    if (mapping.weight !== undefined && /%/.test(String(row[mapping.weight] ?? ''))) weightIsPercentText = true;
+    const p = {
+      id: uid(),
+      name: name || symbol || isin || wkn,
+      isin, wkn, symbol,
+      value: num(row, 'value'),
+      weightRaw: num(row, 'weight'),
+      quantity: num(row, 'quantity'),
+      price: num(row, 'price'),
+      currency: str(row, 'currency').toUpperCase().slice(0, 3) || '',
+      type: normalizeType(str(row, 'type'))
+    };
+    if (p.value === null && p.quantity !== null && p.price !== null) p.value = p.quantity * p.price;
+    if (p.value === null && p.weightRaw === null && p.quantity === null && !p.name) continue;
+    positions.push(p);
+  }
+
+  // Gewichtung: Brüche (Summe ≈ 1) in Prozent umrechnen
+  const wSum = positions.reduce((a, p) => a + (p.weightRaw ?? 0), 0);
+  const fractional = !weightIsPercentText && wSum > 0 && wSum <= 1.05 && positions.every(p => (p.weightRaw ?? 0) <= 1);
+  for (const p of positions) {
+    p.weight = p.weightRaw === null ? null : (fractional ? p.weightRaw * 100 : p.weightRaw);
+    delete p.weightRaw;
+  }
+
+  const recognized = positions.map(p => ({ ...recognize(p), id: p.id }));
+  recomputeWeights(recognized);
+
+  if (mapping.value === undefined && mapping.weight === undefined && mapping.quantity === undefined) {
+    warnings.push('Weder Wert noch Gewichtung gefunden – alle Positionen werden gleich gewichtet.');
+  }
+  const score = recognized.length * 2 + Object.keys(mapping).length * 3 + (header.score || 0);
+  return { positions: recognized, mapping, transposed, headerRow: hasHeader ? header.index : null, headerCells, warnings, score };
+}
+
+function normalizeType(t) {
+  const n = norm(t);
+  if (!n) return '';
+  if (/aktie|stock|equity|share/.test(n)) return 'Aktie';
+  if (/etf/.test(n)) return 'ETF';
+  if (/etc|etn/.test(n)) return 'ETC';
+  if (/fonds|fund/.test(n)) return 'Fonds';
+  if (/anleihe|bond|rente/.test(n)) return 'Anleihe';
+  if (/krypto|crypto/.test(n)) return 'Krypto';
+  if (/rohstoff|commodit|edelmetall/.test(n)) return 'Rohstoff';
+  if (/cash|konto|liquid/.test(n)) return 'Cash';
+  return '';
+}
+
+/**
+ * Berechnet Gewichtungen neu: Wenn für alle Positionen ein Wert vorliegt, ergibt sich die Gewichtung
+ * aus Wert / Summe. Sonst bleiben vorhandene Gewichtungen; fehlt alles, wird gleich gewichtet.
+ */
+export function recomputeWeights(positions) {
+  const withValue = positions.filter(p => Number.isFinite(p.value));
+  const total = withValue.reduce((a, p) => a + p.value, 0);
+  if (withValue.length === positions.length && total > 0) {
+    for (const p of positions) p.weight = (p.value / total) * 100;
+    return { total, source: 'value' };
+  }
+  const withWeight = positions.filter(p => Number.isFinite(p.weight));
+  if (withWeight.length) {
+    // Werte aus Gewichtung hochrechnen, wenn ein Gesamtwert bekannt ist
+    if (withValue.length) {
+      const known = withValue.filter(p => Number.isFinite(p.weight) && p.weight > 0);
+      if (known.length) {
+        const estTotal = known.reduce((a, p) => a + p.value, 0) / (known.reduce((a, p) => a + p.weight, 0) / 100);
+        for (const p of positions) if (!Number.isFinite(p.value) && Number.isFinite(p.weight)) p.value = estTotal * p.weight / 100;
+      }
+    }
+    return { total: positions.reduce((a, p) => a + (Number.isFinite(p.value) ? p.value : 0), 0) || null, source: 'weight' };
+  }
+  const eq = positions.length ? 100 / positions.length : 0;
+  for (const p of positions) p.weight = eq;
+  return { total: null, source: 'equal' };
+}
+
+// ---------- Datei lesen ----------
+
+function decodeText(buf) {
+  const utf8 = new TextDecoder('utf-8').decode(buf);
+  if (!utf8.includes('�')) return utf8.replace(/^﻿/, '');
+  return new TextDecoder('windows-1252').decode(buf);
+}
+
+export function parseCsv(text) {
+  const firstLines = text.split(/\r?\n/).slice(0, 10).join('\n');
+  const delims = [';', ',', '\t', '|'];
+  const counts = delims.map(d => firstLines.split(d).length);
+  const delim = delims[counts.indexOf(Math.max(...counts))];
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; } else q = false;
+      } else cell += ch;
+    } else if (ch === '"' && cell === '') q = true;
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/** Liest eine Datei und gibt Tabellenblätter als { name, rows }[] zurück. */
+export async function readTableFile(file) {
+  const name = file.name || 'datei';
+  const ext = name.split('.').pop().toLowerCase();
+  const buf = await file.arrayBuffer();
+  if (['csv', 'txt', 'tsv'].includes(ext)) {
+    return [{ name, rows: parseCsv(decodeText(buf)) }];
+  }
+  if (!window.XLSX) throw new Error('Excel-Bibliothek wurde nicht geladen.');
+  let wb;
+  try {
+    wb = window.XLSX.read(buf, { type: 'array', cellDates: true, raw: false });
+  } catch (e) {
+    if (ext === 'numbers') {
+      throw new Error('Diese Numbers-Datei konnte nicht gelesen werden. Bitte in Numbers über „Exportieren → Excel“ oder „CSV“ speichern und erneut wählen.');
+    }
+    throw e;
+  }
+  return wb.SheetNames.map(sn => ({
+    name: sn,
+    rows: window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null, blankrows: false })
+  }));
+}
+
+/** Liest eine Datei und wählt automatisch das beste Tabellenblatt. */
+export async function importFile(file) {
+  const sheets = await readTableFile(file);
+  let best = null;
+  for (const sh of sheets) {
+    const res = rowsToPositions(sh.rows);
+    if (!best || res.score > best.score) best = { ...res, sheet: sh.name };
+  }
+  if (!best || !best.positions.length) {
+    const w = best?.warnings?.join(' ') || '';
+    throw new Error('In der Datei wurden keine Positionen erkannt. ' + w);
+  }
+  return { ...best, fileName: file.name, lastModified: file.lastModified || null, sheetCount: sheets.length };
+}
