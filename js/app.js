@@ -307,11 +307,6 @@ async function renderSettings() {
   f.notify.checked = s.notify && ('Notification' in window) && Notification.permission === 'granted';
   f.notifyMinWeight.value = s.notifyMinWeight;
   f.watchMinWeight.value = s.watchMinWeight;
-  f.githubToken.value = s.githubToken || '';
-  const ws = state.watchSync;
-  $('#watchInfo').textContent = ws?.at
-    ? `Zuletzt übergeben: ${fmtDateTime(ws.at)} – ${ws.count} Suchbegriffe${ws.auto ? ' (automatisch)' : ' (zum Kopieren angezeigt)'}.`
-    : 'Noch keine Suchbegriffe übergeben.';
   let hint = '';
   if (!('Notification' in window)) {
     hint = isIOS && !isStandalone
@@ -381,7 +376,6 @@ function applyImport(res, mode, kind) {
   save(true);
   renderAll();
   autoBackup();
-  if (kind !== 'sample') setTimeout(() => syncWatchlist({ afterImport: true }), 600);
 }
 
 const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
@@ -617,122 +611,6 @@ function exportPositions() {
     .map(p => [p.isin || p.symbol || '', p.wkn || '', p.name, p.type || '', num(p.value, 2), num(p.weight, 4)]);
   const csv = '\uFEFF' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n') + '\r\n';
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `depot_${todayStamp()}.csv`);
-}
-
-// ---------------------------------------------------------------- Suchbegriffe für die News-Sammlung
-
-/** Suchbegriffe der stärksten Positionen (ab watchMinWeight %, News eingeschaltet), nach Gewichtung sortiert. */
-function watchlistTerms() {
-  const min = Number(state.settings.watchMinWeight ?? 2);
-  return [...new Set(state.portfolio.positions
-    .filter(p => p.newsEnabled !== false && p.type !== 'Cash' && (p.weight || 0) >= min)
-    .sort((a, b) => (b.weight || 0) - (a.weight || 0))
-    .flatMap(p => splitTerms(p.searchTerm || p.name)))];
-}
-
-function repoOf() {
-  const m = defaultPoolUrl().match(/githubusercontent\.com\/([^/]+)\/([^/]+)\//);
-  return m ? { owner: m[1], repo: m[2] } : null;
-}
-
-function watchlistText(terms) {
-  return [
-    '# Suchbegriffe für die News-Sammlung (ein Begriff pro Zeile).',
-    `# Automatisch aus der App übernommen am ${new Date().toLocaleString('de-DE')}: Positionen ab ${state.settings.watchMinWeight} % Gewichtung.`,
-    '# ACHTUNG: Diese Datei ist öffentlich sichtbar – sie enthält nur Suchbegriffe, keine Werte oder Gewichtungen.',
-    ...terms
-  ].join('\n') + '\n';
-}
-
-const toBase64 = text => {
-  const bytes = new TextEncoder().encode(text);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-};
-const fromBase64 = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
-
-/** Schreibt news/watchlist.txt über die GitHub-API (CORS erlaubt). Gibt true zurück, wenn sich etwas geändert hat. */
-async function pushWatchlist(terms, token) {
-  const r = repoOf();
-  if (!r) throw new Error('Repository unbekannt.');
-  const url = `https://api.github.com/repos/${r.owner}/${r.repo}/contents/news/watchlist.txt`;
-  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  const cur = await fetch(`${url}?ref=main`, { headers });
-  if (cur.status === 401 || cur.status === 403) throw new Error('GitHub-Schlüssel ungültig oder ohne Schreibrecht („Contents: Read and write“).');
-  if (!cur.ok && cur.status !== 404) throw new Error(`GitHub antwortet mit ${cur.status}.`);
-  const old = cur.ok ? await cur.json() : null;
-  const oldTerms = old ? fromBase64(old.content).split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')) : [];
-  if (oldTerms.join('\n') === terms.join('\n')) return false;
-  const put = await fetch(url, {
-    method: 'PUT',
-    headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: `Suchbegriffe aus der App aktualisiert (${terms.length} Begriffe, Positionen ab ${state.settings.watchMinWeight} %)`,
-      content: toBase64(watchlistText(terms)),
-      branch: 'main',
-      ...(old?.sha ? { sha: old.sha } : {})
-    })
-  });
-  if (!put.ok) throw new Error(`Speichern auf GitHub fehlgeschlagen (${put.status}).`);
-  return true;
-}
-
-/** Übergibt die Suchbegriffe: mit GitHub-Schlüssel automatisch, sonst als Dialog zum Kopieren. */
-async function syncWatchlist({ afterImport = false } = {}) {
-  const terms = watchlistTerms();
-  if (!terms.length) { if (!afterImport) toast(`Keine Position ab ${state.settings.watchMinWeight} % Gewichtung.`); return; }
-  const token = state.settings.githubToken;
-  if (token) {
-    try {
-      const changed = await pushWatchlist(terms, token);
-      state.watchSync = { at: Date.now(), count: terms.length, auto: true };
-      save();
-      toast(changed
-        ? `${terms.length} Suchbegriffe an die News-Sammlung übergeben – neue News in etwa 1–2 Minuten.`
-        : 'Suchbegriffe der News-Sammlung sind bereits aktuell.', 5000);
-      if (!$('#view-more').hidden) renderSettings();
-      return;
-    } catch (e) {
-      toast('Automatische Übergabe fehlgeschlagen: ' + e.message, 7000);
-    }
-  }
-  // Ohne Schlüssel: nach dem Import nur fragen, wenn sich die Begriffe geändert haben
-  const key = terms.join('|');
-  if (afterImport && state.watchSync?.key === key) return;
-  showWatchlistTerms(terms, key, afterImport);
-}
-
-function showWatchlistTerms(terms = watchlistTerms(), key = terms.join('|'), afterImport = false) {
-  const text = terms.join('\n');
-  const r = repoOf();
-  const editUrl = r ? `https://github.com/${r.owner}/${r.repo}/edit/main/news/watchlist.txt` : '';
-  const dlg = document.createElement('dialog');
-  dlg.className = 'dlg';
-  dlg.innerHTML = `<form method="dialog" class="dlg-body">
-    <h2>Suchbegriffe für die News-Sammlung</h2>
-    <p class="small">${afterImport ? 'Neue Tabelle eingelesen. ' : ''}Die ${terms.length} Begriffe deiner Positionen ab
-      <strong>${esc(String(state.settings.watchMinWeight))} %</strong> Gewichtung. Bitte in <code>news/watchlist.txt</code> auf GitHub
-      einfügen (alten Inhalt ersetzen) und speichern – die Sammlung sucht dann gezielt danach.</p>
-    <p class="small warn-text">Diese Datei ist öffentlich sichtbar: nur Suchbegriffe, keine Werte oder Gewichtungen.</p>
-    <textarea class="terms" readonly>${esc(text)}</textarea>
-    <p class="muted small">Tipp: Mit einem GitHub-Schlüssel unter „Mehr“ geschieht das künftig automatisch.</p>
-    <div class="btn-row">
-      <button type="button" class="btn primary" data-copy>Kopieren</button>
-      ${editUrl ? `<a class="btn" href="${esc(editUrl)}" target="_blank" rel="noopener" data-open>Auf GitHub öffnen</a>` : ''}
-      <button class="btn ghost" value="close">Schließen</button>
-    </div>
-  </form>`;
-  document.body.appendChild(dlg);
-  const done = () => { state.watchSync = { at: Date.now(), count: terms.length, auto: false, key }; save(); };
-  $('[data-copy]', dlg).onclick = async () => {
-    try { await navigator.clipboard.writeText(text); toast('Suchbegriffe kopiert.'); }
-    catch { $('textarea', dlg).select(); toast('Bitte markierten Text kopieren.'); }
-    done();
-  };
-  $('[data-open]', dlg)?.addEventListener('click', done);
-  dlg.addEventListener('close', () => dlg.remove());
-  dlg.showModal();
 }
 
 // ---------------------------------------------------------------- Positionen bearbeiten
@@ -1072,8 +950,7 @@ function bindEvents() {
   });
   $('#addPosBtn').addEventListener('click', () => openPosEditor(null));
   $('#exportPosBtn').addEventListener('click', exportPositions);
-  $('#copyTermsBtn').addEventListener('click', () => syncWatchlist());
-  $('#syncWatchBtn').addEventListener('click', () => syncWatchlist());
+
   $('#depotFilter').addEventListener('input', renderDepot);
   $('#positionList').addEventListener('change', e => {
     const id = e.target.dataset.news;
@@ -1189,7 +1066,6 @@ function bindEvents() {
     s.askOnStart = f.askOnStart.checked;
     s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
     s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
-    s.githubToken = f.githubToken.value.trim();
     if (e.target.name === 'notify') {
       if (f.notify.checked) {
         if (!('Notification' in window)) { f.notify.checked = false; toast('Benachrichtigungen werden hier nicht unterstützt.'); }

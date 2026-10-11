@@ -21,7 +21,6 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
 | **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* WKN (auch ausländische, z. B. 865985 = Apple) – Name, ISIN, WKN, Ticker, Typ und Suchbegriff kommen von onvista (Rückfall: Wikidata); bei mehreren Treffern zur Auswahl |
-| **Suchbegriffe für die News-Sammlung** | Nach jedem Einlesen: Suchbegriffe aller Positionen ab 2 % Gewichtung (unter „Mehr“ einstellbar) → `news/watchlist.txt`; mit GitHub-Schlüssel automatisch, sonst zum Kopieren |
 | **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
@@ -53,8 +52,7 @@ Spaltennamen sind egal.
 ```
 GitHub Action „News sammeln“ (alle 30 Min., läuft auf GitHub-Servern – dort gibt es keine CORS-Sperren)
   ├─ RSS-Feeds aus news/feeds.json (Handelsblatt, FAZ, tagesschau, WSJ, FT, CNBC, BBC, …)
-  ├─ Google News für Medien ohne Feed (Reuters, AP, Bloomberg, Börsen-Zeitung, …)
-  └─ Google News für die Begriffe aus news/watchlist.txt
+  └─ Google News für Medien ohne Feed (Reuters, AP, Bloomberg, Börsen-Zeitung, …)
         ↓
   news.json im Branch „news-data“ (≈ 2.000 Artikel der letzten 7 Tage)
         ↓  eine einzige Anfrage an raw.githubusercontent.com (CORS erlaubt)
@@ -67,13 +65,8 @@ App auf dem iPhone: sucht lokal nach deinen Positionen → Depot verlässt das G
 **Quellen ändern:** `news/feeds.json` auf GitHub bearbeiten (RSS-Feed oder Domain ergänzen). In der App unter
 „Quellen“ legst du fest, welche davon angezeigt werden.
 
-**Suchbegriffe deiner Positionen:** Nach jedem Einlesen übergibt die App die Suchbegriffe aller Positionen ab 2 %
-Gewichtung (unter „Mehr“ einstellbar) an `news/watchlist.txt` – die Sammlung sucht dann gezielt danach.
-- *Automatisch:* unter „Mehr → GitHub-Schlüssel“ einen [Fine-grained Token](https://github.com/settings/personal-access-tokens/new)
-  eintragen („Only select repositories“ → dieses Repository, „Contents: Read and write“). Er bleibt nur auf dem Gerät.
-- *Ohne Schlüssel:* Die App zeigt die Begriffe zum Kopieren und öffnet die Datei auf GitHub.
-
-⚠️ `news/watchlist.txt` ist öffentlich – sie enthält nur Suchbegriffe, keine Werte oder Gewichtungen.
+**Alles Persönliche bleibt lokal:** Positionsliste und Suchbegriffe liegen nur auf dem Gerät. Die Sammlung ist für alle
+Nutzer gleich (keine nutzerbezogenen Daten im Repository) – mehrere Personen können die App gleichzeitig nutzen.
 
 **Treffergenauigkeit:** Suchbegriffe pro Position anpassen; mehrere Begriffe mit `OR`, Ausschlüsse mit ` -`, z. B.
 `Nikkei OR Topix -Nikkei Asia`. Gleiche Meldungen mehrerer Medien werden zusammengefasst („Handelsblatt + FAZ“).
@@ -120,7 +113,7 @@ js/assets.js   ISIN/WKN-Prüfung, Typ- & Suchbegriff-Erkennung
 js/news.js     News-Sammlung laden (sonst direkte Feeds), Zuordnung, Zusammenfassen, Sortierung
 js/lookup.js   Online-Suche für „+ Position“ (onvista, Rückfall Wikidata)
 scripts/collect-news.mjs  Sammelskript der GitHub Action
-news/          feeds.json (Quellen) und watchlist.txt (zusätzliche Suchbegriffe)
+news/          feeds.json (Quellen der Sammlung)
 js/sources.js  vorgeschlagene Quellen
 js/store.js    lokale Speicherung, Sicherung
 vendor/        SheetJS CE 0.18.5 (Apache-2.0), lokal ausgeliefert

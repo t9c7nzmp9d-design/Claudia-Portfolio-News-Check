@@ -76,7 +76,6 @@
           <button id="importBtn" class="btn primary" type="button">Datei einlesen</button>
           <button id="addPosBtn" class="btn" type="button">+ Position</button>
           <button id="exportPosBtn" class="btn" type="button">Als CSV exportieren</button>
-          <button id="copyTermsBtn" class="btn ghost" type="button">Suchbegriffe an News-Sammlung</button>
         </div>
       </div>
       <div class="row-between list-head">
@@ -146,20 +145,12 @@
         </label>
         <label class="check"><input type="checkbox" name="askOnStart"> Beim Start nach neuer Depot-Datei fragen</label>
 
-        <h2>News-Sammlung</h2>
-        <label>Suchbegriffe für die News-Sammlung: Positionen ab Gewichtung (%)
+        <h2>Gezielte Suche</h2>
+        <label>News gezielt suchen für Positionen ab Gewichtung (%)
           <input name="watchMinWeight" type="number" min="0" max="100" step="0.5">
         </label>
-        <p class="muted small">Nach dem Einlesen einer Tabelle werden die Suchbegriffe dieser Positionen an die News-Sammlung
-          übergeben (Datei <code>news/watchlist.txt</code> – öffentlich sichtbar, nur Begriffe, keine Werte).</p>
-        <label>GitHub-Schlüssel für die automatische Übergabe (optional)
-          <input name="githubToken" type="password" autocomplete="off" autocapitalize="off" placeholder="github_pat_…">
-        </label>
-        <p class="muted small">Ohne Schlüssel zeigt die App die Begriffe zum Kopieren an. Mit Schlüssel geschieht es automatisch.
-          Schlüssel anlegen: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → Fine-grained token</a>,
-          „Only select repositories“ → dieses Repository, Berechtigung „Contents: Read and write“. Der Schlüssel bleibt nur auf diesem Gerät.</p>
-        <p id="watchInfo" class="muted small"></p>
-        <button id="syncWatchBtn" class="btn" type="button">Suchbegriffe jetzt übergeben</button>
+        <p class="muted small">Für diese Positionen sucht die App direkt von deinem Gerät aus nach Meldungen.
+          Die Suchbegriffe bleiben auf diesem Gerät und werden nirgends gespeichert.</p>
 
         <h2>Benachrichtigungen</h2>
         <label class="check"><input type="checkbox" name="notify"> Bei neuen News benachrichtigen</label>

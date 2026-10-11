@@ -1,6 +1,6 @@
 name: News sammeln
 
-# Sammelt alle 30 Minuten die Schlagzeilen der Quellen aus news/feeds.json (+ news/watchlist.txt)
+# Sammelt alle 30 Minuten die Schlagzeilen der Quellen aus news/feeds.json (keine nutzerbezogenen Daten)
 # und legt sie als news.json im Branch „news-data“ ab. Die App lädt diese Datei über
 # raw.githubusercontent.com und ordnet die Artikel lokal den Depot-Positionen zu.
 
