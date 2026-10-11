@@ -2,6 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+
+// SheetJS wie im Browser als globales Skript laden (für Excel-/Numbers-Dateien)
+const sandbox = { console, Uint8Array, ArrayBuffer, DataView, TextDecoder, TextEncoder, Date, Math };
+sandbox.self = sandbox;
+vm.runInNewContext(readFileSync(new URL('../vendor/xlsx.full.min.js', import.meta.url), 'utf8'), sandbox);
+globalThis.window = { XLSX: sandbox.XLSX };
 
 const { importFile, rowsToPositions, parseCsv } = await import('../js/parser.js');
 const { isValidIsin, wknFromIsin, recognize } = await import('../js/assets.js');
@@ -31,8 +38,8 @@ test('ISIN-Prüfung & WKN', () => {
   assert.equal(wknFromIsin('DE0007164600'), '716460');
 });
 
-test('Musterdepot.csv wird erkannt', async () => {
-  const res = await importFile(fakeFile('sample/Musterdepot.csv'));
+for (const file of ['sample/Musterdepot.xlsx', 'sample/Musterdepot.csv']) test(`${file} wird erkannt`, async () => {
+  const res = await importFile(fakeFile(file));
   assert.equal(res.positions.length, 29);
   const apple = res.positions.find(p => p.isin === 'US0378331005');
   assert.equal(apple.name, 'Apple');
@@ -172,21 +179,18 @@ test('Textkodierungen: UTF-16 (Excel „Unicode-Text“, Numbers), mit und ohne 
   }
 });
 
-test('Mehr als 6 Spalten → Abbruch mit verständlicher Meldung', async () => {
+test('Mehr als 6 Spalten → nur Hinweis, Positionen werden trotzdem eingelesen', async () => {
   const csv = 'Bestand;Einheit;Wertpapierbezeichnung;ISIN;WKN;Kurs;Kurswert in EUR\n10;Stück;SAP SE;DE0007164600;716460;178,40;1.784,00\n';
   const res = rowsToPositions(parseCsv(csv));
-  assert.equal(res.tooManyColumns, 7);
-  assert.equal(res.positions.length, 0);
-  const buf = Buffer.from(csv);
-  await assert.rejects(importFile({ name: 'x.csv', arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }), /7 Spalten – erlaubt sind höchstens 6/);
+  assert.equal(res.usedColumns, 7);
+  assert.equal(res.positions.length, 1);
+  assert.equal(res.positions[0].name, 'SAP SE');
+  assert.match(res.warnings.join(' '), /7 Spalten\. Gebraucht werden höchstens 6/);
 });
 
 test('Leere Spalten (z. B. „;;;;;;“ in Titelzeilen) zählen nicht', () => {
   const res = rowsToPositions(parseCsv('Depotübersicht;;;;;;;;\n;;;;;;;;\nName;ISIN;Wert;;;;;;\nSAP;DE0007164600;100;;;;;;\n'));
-  assert.equal(res.tooManyColumns, undefined);
+  assert.equal(res.usedColumns, 3);
+  assert.equal(res.warnings.length, 0);
   assert.equal(res.positions.length, 1);
-});
-
-test('Excel-/Numbers-Dateien werden mit Hinweis auf CSV abgelehnt', async () => {
-  await assert.rejects(importFile({ name: 'depot.xlsx', arrayBuffer: async () => new ArrayBuffer(4) }), /keine CSV-Datei/);
 });

@@ -38,7 +38,7 @@
 
     <h2>3. Deine Depotdaten bleiben auf deinem Gerät</h2>
     <ul>
-      <li>Eingelesene Tabellen (CSV, Excel, Numbers) werden <strong>im Browser</strong> ausgewertet – die Datei wird nicht hochgeladen.</li>
+      <li>Eingelesene Tabellen (Excel, Numbers, CSV) werden <strong>im Browser</strong> ausgewertet – die Datei wird nicht hochgeladen.</li>
       <li>Positionen, Quellen, Einstellungen und gelesene Artikel werden im lokalen Speicher des Browsers
         (<code>localStorage</code>/<code>IndexedDB</code>) abgelegt. Sie verlassen das Gerät nur, wenn du selbst eine Sicherung exportierst oder teilst.</li>
       <li>Wenn du ein lokales Verzeichnis verbindest (nur in unterstützten Browsern), merkt sich der Browser die Freigabe;
@@ -60,8 +60,16 @@
 
     <h2>4a. Online-Suche beim Anlegen einer Position</h2>
     <p>Bei „+ Position“ ergänzt die App fehlende Angaben, indem sie den eingegebenen <strong>Namen, die ISIN oder WKN</strong>
-      an <strong>Wikidata</strong> (<code>query.wikidata.org</code>, Wikimedia Foundation, USA) sendet. Es wird nur dieser eine Suchbegriff übertragen,
-      keine Werte und kein übriges Depot. Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO – die Suche erfolgt nur auf deine Eingabe.</p>
+      an <strong>onvista</strong> (<code>api.onvista.de</code>, onvista media GmbH, Deutschland) und – falls dort nichts gefunden
+      wird – an <strong>Wikidata</strong> (<code>query.wikidata.org</code>, Wikimedia Foundation, USA) sendet. Es wird nur dieser
+      eine Suchbegriff übertragen, keine Werte und kein übriges Depot. Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO.</p>
+
+    <h2>4b. Suchbegriffe für die News-Sammlung</h2>
+    <p>Nach dem Einlesen einer Tabelle werden die Suchbegriffe deiner stärksten Positionen (Standard: ab 2 % Gewichtung)
+      in die Datei <code>news/watchlist.txt</code> des Repositorys übernommen – automatisch, wenn du unter „Mehr“ einen
+      GitHub-Schlüssel hinterlegt hast, sonst durch dich selbst per Kopieren. <strong>Diese Datei ist öffentlich sichtbar.</strong>
+      Sie enthält nur Suchbegriffe (z. B. „SAP“), keine Werte, Stückzahlen oder Gewichtungen. Der GitHub-Schlüssel wird nur
+      lokal auf deinem Gerät gespeichert und ausschließlich an <code>api.github.com</code> gesendet.</p>
 
     <h2>5. Externe Links</h2>
     <p>Beim Öffnen eines Artikels verlässt du die App und rufst die Website des jeweiligen Mediums auf; dort gelten deren

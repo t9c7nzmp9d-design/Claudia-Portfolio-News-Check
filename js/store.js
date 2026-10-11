@@ -15,6 +15,8 @@ export function defaultSettings() {
     displayMode: 'percent',   // 'percent' | 'value'
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
+    watchMinWeight: 2,        // Suchbegriffe für die News-Sammlung: Positionen ab dieser Gewichtung (%)
+    githubToken: '',          // optional: Fine-grained Token zum Aktualisieren von news/watchlist.txt
     autoRefreshMin: 30,       // automatische Aktualisierung bei geöffneter App (0 = aus)
     autoBackup: true,         // Sicherung in gewähltes Verzeichnis (sofern unterstützt)
     askOnStart: true          // beim Start nach neuer Depot-Datei fragen (ohne Verzeichniszugriff)

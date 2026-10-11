@@ -8,7 +8,7 @@ import { lookupSecurity } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -55,6 +55,19 @@ function showBanner(html, actions = []) {
   b.hidden = false;
 }
 function hideBanner() { $('#banner').hidden = true; }
+
+/** Meldung als Dialog (bleibt auch über anderen Dialogen sichtbar). */
+function showMessage(title, text) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'dlg';
+    dlg.innerHTML = `<form method="dialog" class="dlg-body"><h2>${esc(title)}</h2><p>${esc(text)}</p>
+      <div class="btn-row"><button class="btn primary" value="ok">OK</button></div></form>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(); });
+    dlg.showModal();
+  });
+}
 
 /** Kleiner Auswahldialog (Action Sheet). */
 function choose(title, options) {
@@ -293,6 +306,12 @@ async function renderSettings() {
   f.askOnStart.checked = s.askOnStart;
   f.notify.checked = s.notify && ('Notification' in window) && Notification.permission === 'granted';
   f.notifyMinWeight.value = s.notifyMinWeight;
+  f.watchMinWeight.value = s.watchMinWeight;
+  f.githubToken.value = s.githubToken || '';
+  const ws = state.watchSync;
+  $('#watchInfo').textContent = ws?.at
+    ? `Zuletzt übergeben: ${fmtDateTime(ws.at)} – ${ws.count} Suchbegriffe${ws.auto ? ' (automatisch)' : ' (zum Kopieren angezeigt)'}.`
+    : 'Noch keine Suchbegriffe übergeben.';
   let hint = '';
   if (!('Notification' in window)) {
     hint = isIOS && !isStandalone
@@ -362,6 +381,7 @@ function applyImport(res, mode, kind) {
   save(true);
   renderAll();
   autoBackup();
+  if (kind !== 'sample') setTimeout(() => syncWatchlist({ afterImport: true }), 600);
 }
 
 const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
@@ -396,8 +416,6 @@ function importReportHtml(res, { colsOpen = false } = {}) {
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
       <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.${res.transposed ? ' <em>Tabelle war gedreht – automatisch umgestellt.</em>' : ''}</p>
     ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}
-    ${/\.numbers$/i.test(res.fileName) ? `<p class="small muted">Apple-Numbers-Dateien werden nicht immer vollständig gelesen. Sieht unten etwas falsch aus:
-      in Numbers <em>Ablage → Exportieren → CSV</em> (oder Excel) wählen und diese Datei einlesen.</p>` : ''}
     <details class="advanced" ${colsOpen || missingName || missingAmount || !res.positions.length ? 'open' : ''}>
       <summary>Spalten prüfen und korrigieren</summary>
       <p class="muted small">Falls eine Spalte falsch gedeutet wurde, hier die richtige Bedeutung wählen – die Positionen werden sofort neu eingelesen.</p>
@@ -458,7 +476,7 @@ async function handleFile(file, { auto = false, kind = 'file' } = {}) {
     return true;
   } catch (e) {
     console.error(e);
-    toast('Fehler beim Einlesen: ' + e.message, 7000);
+    await showMessage('Tabelle nicht eingelesen', e.message);
     return false;
   }
 }
@@ -590,60 +608,129 @@ async function restoreFromFile(file) {
   }
 }
 
-async function exportPositions() {
-  const choice = await choose('Positionen exportieren', ['Excel (.xlsx)', 'CSV (Semikolon)']);
-  if (choice < 0) return;
-  const rows = state.portfolio.positions.map(p => ({
-    ISIN: p.isin || '', WKN: p.wkn || '', Symbol: p.symbol || '', Name: p.name, Typ: p.type || '',
-    'Wert (EUR)': Number.isFinite(p.value) ? Math.round(p.value * 100) / 100 : '',
-    'Gewicht (%)': Number.isFinite(p.weight) ? Math.round(p.weight * 10000) / 10000 : '',
-    'Stück': Number.isFinite(p.quantity) ? p.quantity : '', Suchbegriff: p.searchTerm || ''
-  }));
-  const base = `depot_${todayStamp()}`;
-  if (choice === 0) {
-    const ws = window.XLSX.utils.json_to_sheet(rows);
-    const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, 'Depot');
-    const out = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    downloadBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), base + '.xlsx');
-  } else {
-    const head = Object.keys(rows[0] || { Name: '' });
-    const cell = v => {
-      const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
-      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const csv = '﻿' + [head.join(';'), ...rows.map(r => head.map(h => cell(r[h])).join(';'))].join('\r\n');
-    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), base + '.csv');
-  }
+/** Exportiert das Depot als CSV mit 6 Spalten – so lässt es sich jederzeit wieder einlesen. */
+function exportPositions() {
+  const head = ['ISIN', 'WKN', 'Name', 'Typ', 'Wert (in €)', 'Gewicht (in %)'];
+  const num = (v, d) => (Number.isFinite(v) ? v.toFixed(d).replace('.', ',') : '');
+  const cell = v => (/[;"\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
+  const rows = [...state.portfolio.positions].sort((a, b) => (b.weight || 0) - (a.weight || 0))
+    .map(p => [p.isin || p.symbol || '', p.wkn || '', p.name, p.type || '', num(p.value, 2), num(p.weight, 4)]);
+  const csv = '\uFEFF' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n') + '\r\n';
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `depot_${todayStamp()}.csv`);
 }
 
-/** Zeigt die Suchbegriffe der Positionen zum Eintragen in news/watchlist.txt der News-Sammlung. */
-function showWatchlistTerms() {
-  const terms = [...new Set(state.portfolio.positions.filter(p => p.newsEnabled !== false && p.type !== 'Cash')
+// ---------------------------------------------------------------- Suchbegriffe für die News-Sammlung
+
+/** Suchbegriffe der stärksten Positionen (ab watchMinWeight %, News eingeschaltet), nach Gewichtung sortiert. */
+function watchlistTerms() {
+  const min = Number(state.settings.watchMinWeight ?? 2);
+  return [...new Set(state.portfolio.positions
+    .filter(p => p.newsEnabled !== false && p.type !== 'Cash' && (p.weight || 0) >= min)
     .sort((a, b) => (b.weight || 0) - (a.weight || 0))
     .flatMap(p => splitTerms(p.searchTerm || p.name)))];
-  const text = terms.join('\n');
+}
+
+function repoOf() {
   const m = defaultPoolUrl().match(/githubusercontent\.com\/([^/]+)\/([^/]+)\//);
-  const editUrl = m ? `https://github.com/${m[1]}/${m[2]}/edit/main/news/watchlist.txt` : '';
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
+function watchlistText(terms) {
+  return [
+    '# Suchbegriffe für die News-Sammlung (ein Begriff pro Zeile).',
+    `# Automatisch aus der App übernommen am ${new Date().toLocaleString('de-DE')}: Positionen ab ${state.settings.watchMinWeight} % Gewichtung.`,
+    '# ACHTUNG: Diese Datei ist öffentlich sichtbar – sie enthält nur Suchbegriffe, keine Werte oder Gewichtungen.',
+    ...terms
+  ].join('\n') + '\n';
+}
+
+const toBase64 = text => {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+};
+const fromBase64 = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
+
+/** Schreibt news/watchlist.txt über die GitHub-API (CORS erlaubt). Gibt true zurück, wenn sich etwas geändert hat. */
+async function pushWatchlist(terms, token) {
+  const r = repoOf();
+  if (!r) throw new Error('Repository unbekannt.');
+  const url = `https://api.github.com/repos/${r.owner}/${r.repo}/contents/news/watchlist.txt`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  const cur = await fetch(`${url}?ref=main`, { headers });
+  if (cur.status === 401 || cur.status === 403) throw new Error('GitHub-Schlüssel ungültig oder ohne Schreibrecht („Contents: Read and write“).');
+  if (!cur.ok && cur.status !== 404) throw new Error(`GitHub antwortet mit ${cur.status}.`);
+  const old = cur.ok ? await cur.json() : null;
+  const oldTerms = old ? fromBase64(old.content).split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#')) : [];
+  if (oldTerms.join('\n') === terms.join('\n')) return false;
+  const put = await fetch(url, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `Suchbegriffe aus der App aktualisiert (${terms.length} Begriffe, Positionen ab ${state.settings.watchMinWeight} %)`,
+      content: toBase64(watchlistText(terms)),
+      branch: 'main',
+      ...(old?.sha ? { sha: old.sha } : {})
+    })
+  });
+  if (!put.ok) throw new Error(`Speichern auf GitHub fehlgeschlagen (${put.status}).`);
+  return true;
+}
+
+/** Übergibt die Suchbegriffe: mit GitHub-Schlüssel automatisch, sonst als Dialog zum Kopieren. */
+async function syncWatchlist({ afterImport = false } = {}) {
+  const terms = watchlistTerms();
+  if (!terms.length) { if (!afterImport) toast(`Keine Position ab ${state.settings.watchMinWeight} % Gewichtung.`); return; }
+  const token = state.settings.githubToken;
+  if (token) {
+    try {
+      const changed = await pushWatchlist(terms, token);
+      state.watchSync = { at: Date.now(), count: terms.length, auto: true };
+      save();
+      toast(changed
+        ? `${terms.length} Suchbegriffe an die News-Sammlung übergeben – neue News in etwa 1–2 Minuten.`
+        : 'Suchbegriffe der News-Sammlung sind bereits aktuell.', 5000);
+      if (!$('#view-more').hidden) renderSettings();
+      return;
+    } catch (e) {
+      toast('Automatische Übergabe fehlgeschlagen: ' + e.message, 7000);
+    }
+  }
+  // Ohne Schlüssel: nach dem Import nur fragen, wenn sich die Begriffe geändert haben
+  const key = terms.join('|');
+  if (afterImport && state.watchSync?.key === key) return;
+  showWatchlistTerms(terms, key, afterImport);
+}
+
+function showWatchlistTerms(terms = watchlistTerms(), key = terms.join('|'), afterImport = false) {
+  const text = terms.join('\n');
+  const r = repoOf();
+  const editUrl = r ? `https://github.com/${r.owner}/${r.repo}/edit/main/news/watchlist.txt` : '';
   const dlg = document.createElement('dialog');
   dlg.className = 'dlg';
   dlg.innerHTML = `<form method="dialog" class="dlg-body">
     <h2>Suchbegriffe für die News-Sammlung</h2>
-    <p class="small">Die News-Sammlung enthält bereits alle aktuellen Wirtschafts-Schlagzeilen. Damit auch Meldungen zu
-      kleineren Werten gezielt gesucht werden, kannst du diese Begriffe in <code>news/watchlist.txt</code> auf GitHub eintragen.</p>
-    <p class="small warn-text">Achtung: Diese Datei ist öffentlich sichtbar. Es werden nur Suchbegriffe geteilt – keine Werte oder Gewichtungen.</p>
+    <p class="small">${afterImport ? 'Neue Tabelle eingelesen. ' : ''}Die ${terms.length} Begriffe deiner Positionen ab
+      <strong>${esc(String(state.settings.watchMinWeight))} %</strong> Gewichtung. Bitte in <code>news/watchlist.txt</code> auf GitHub
+      einfügen (alten Inhalt ersetzen) und speichern – die Sammlung sucht dann gezielt danach.</p>
+    <p class="small warn-text">Diese Datei ist öffentlich sichtbar: nur Suchbegriffe, keine Werte oder Gewichtungen.</p>
     <textarea class="terms" readonly>${esc(text)}</textarea>
+    <p class="muted small">Tipp: Mit einem GitHub-Schlüssel unter „Mehr“ geschieht das künftig automatisch.</p>
     <div class="btn-row">
       <button type="button" class="btn primary" data-copy>Kopieren</button>
-      ${editUrl ? `<a class="btn" href="${esc(editUrl)}" target="_blank" rel="noopener">Auf GitHub öffnen</a>` : ''}
+      ${editUrl ? `<a class="btn" href="${esc(editUrl)}" target="_blank" rel="noopener" data-open>Auf GitHub öffnen</a>` : ''}
       <button class="btn ghost" value="close">Schließen</button>
     </div>
   </form>`;
   document.body.appendChild(dlg);
+  const done = () => { state.watchSync = { at: Date.now(), count: terms.length, auto: false, key }; save(); };
   $('[data-copy]', dlg).onclick = async () => {
     try { await navigator.clipboard.writeText(text); toast('Suchbegriffe kopiert.'); }
     catch { $('textarea', dlg).select(); toast('Bitte markierten Text kopieren.'); }
+    done();
   };
+  $('[data-open]', dlg)?.addEventListener('click', done);
   dlg.addEventListener('close', () => dlg.remove());
   dlg.showModal();
 }
@@ -922,7 +1009,8 @@ function bindEvents() {
   $('#fileInput').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) { if (!state.onboarded) openOnboarding(); return; }
-    await handleFile(file, { kind: 'file' });
+    const ok = await handleFile(file, { kind: 'file' });
+    if (!ok && !state.onboarded) openOnboarding();
   });
   $('#importDlg').addEventListener('close', () => {
     const dlg = $('#importDlg');
@@ -984,7 +1072,8 @@ function bindEvents() {
   });
   $('#addPosBtn').addEventListener('click', () => openPosEditor(null));
   $('#exportPosBtn').addEventListener('click', exportPositions);
-  $('#copyTermsBtn').addEventListener('click', showWatchlistTerms);
+  $('#copyTermsBtn').addEventListener('click', () => syncWatchlist());
+  $('#syncWatchBtn').addEventListener('click', () => syncWatchlist());
   $('#depotFilter').addEventListener('input', renderDepot);
   $('#positionList').addEventListener('change', e => {
     const id = e.target.dataset.news;
@@ -1099,6 +1188,8 @@ function bindEvents() {
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
     s.notifyMinWeight = Number(f.notifyMinWeight.value) || 0;
+    s.watchMinWeight = Math.max(0, Number(String(f.watchMinWeight.value).replace(',', '.')) || 0);
+    s.githubToken = f.githubToken.value.trim();
     if (e.target.name === 'notify') {
       if (f.notify.checked) {
         if (!('Notification' in window)) { f.notify.checked = false; toast('Benachrichtigungen werden hier nicht unterstützt.'); }
