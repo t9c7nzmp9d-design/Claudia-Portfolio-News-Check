@@ -294,7 +294,12 @@ function parseOriented(rows0, forcedMapping, orientation) {
     const c = mapping[f];
     if (c === undefined) continue;
     const strs = dataRows.map(r => r[c]).filter(v => typeof v === 'string');
-    decimalComma[f] = strs.some(s => /\d,\d{1,2}\s*(%|€|eur)?$/i.test(s.trim()) || /\d\.\d{3},/.test(s));
+    const clean = strs.map(s => s.trim().replace(/\s*(€|eur|stk\.?|stück)$/i, ''));
+    decimalComma[f] = strs.some(s => /\d,\d{1,2}\s*(%|€|eur)?$/i.test(s.trim()) || /\d\.\d{3},/.test(s))
+      // „1.500“ / „12.000“ ohne Nachkommastellen: Punkt ist Tausendertrenner (bei Werten und Stückzahlen),
+      // sofern keine Zelle der Spalte englische Dezimalstellen hat („610.43“)
+      || ((f === 'value' || f === 'quantity') && clean.some(s => /^-?[1-9]\d{0,2}(\.\d{3})+$/.test(s))
+        && !clean.some(s => /^-?\d+\.\d{1,2}$/.test(s)));
   }
   const num = (row, f) => (mapping[f] === undefined ? null : parseNumber(row[mapping[f]], decimalComma[f]));
   const str = (row, f) => (mapping[f] === undefined ? '' : String(row[mapping[f]] ?? '').trim());

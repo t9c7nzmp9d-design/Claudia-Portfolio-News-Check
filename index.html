@@ -88,6 +88,7 @@
           <option value="type">nach Typ</option>
         </select>
       </div>
+      <div id="typeNews" class="card type-news"></div>
       <div class="row-between news-bulk">
         <span id="newsCount" class="muted small"></span>
         <span class="small"><button id="newsAllOn" type="button" class="link-btn small">Alle an</button> ·
@@ -148,10 +149,10 @@
         <label class="check"><input type="checkbox" name="askOnStart"> Beim Start nach neuer Depot-Datei fragen</label>
 
         <h2>Einlesen</h2>
-        <label>Positionen mit einem Wert unter … € nicht einlesen
-          <input name="minValue" type="number" min="0" step="1" inputmode="decimal">
+        <label>Höchstens … Positionen einlesen (die ersten der Tabelle)
+          <input name="maxImport" type="number" min="1" step="100" inputmode="numeric">
         </label>
-        <p class="muted small">Gilt für eingelesene Tabellen (0 = aus). Positionen ohne Wertangabe und von Hand angelegte Positionen bleiben erhalten.</p>
+        <p class="muted small">Standard 2000. Weitere Zeilen der Tabelle werden beim Einlesen übergangen.</p>
 
         <h2>Suchliste</h2>
         <label>News für Positionen ab Gewichtung (%)
