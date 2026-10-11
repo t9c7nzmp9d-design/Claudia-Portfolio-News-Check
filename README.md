@@ -13,6 +13,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 |---|---|
 | **Einrichtung** | Beim ersten Start: lokales Verzeichnis wählen *oder* Tabelle hochladen *oder* überspringen → Musterdepot |
 | **Import** | Tabelle (Excel `.xlsx/.xls/.ods`, Apple Numbers `.numbers`) oder CSV (`;` `,` Tab; UTF-8, UTF-16, Windows-1252). Sinnvoll sind bis zu 6 Spalten (z. B. ISIN, WKN, Name, Typ, Wert, Gewicht) – bei mehr Spalten erscheint ein Hinweis, eingelesen wird trotzdem |
+| **Kleinstpositionen** | Eingelesene Positionen mit einem Wert unter 10 € (unter „Mehr“ einstellbar, 0 = aus) werden nicht übernommen bzw. entfernt; der Import-Dialog zeigt vorher, welche. Von Hand angelegte Positionen und Positionen ohne Wert bleiben |
 | **Ausrichtung prüfen** | Plausibilitätsprüfung beim Einlesen: Die Tabelle wird in beiden Richtungen gelesen; stehen Positionen in Spalten und Felder in Zeilen, wird automatisch getauscht (Hinweis + Schalter „Zeilen und Spalten tauschen“ im Import-Dialog) |
 | **Kurse** | Beim Einfügen einer Position (Einlesen oder „+ Position“) wird einmalig der aktuelle Kurs von onvista geholt – bevorzugt in Euro an Xetra/Tradegate/gettex; fehlt der Wert, wird er aus Stückzahl × Kurs berechnet |
 | **Spalten korrigieren** | Im Import-Dialog jede Spalte mit Beispielwerten sehen und ihre Bedeutung per Auswahl ändern – die Positionen werden sofort neu eingelesen |

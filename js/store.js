@@ -15,6 +15,7 @@ export function defaultSettings() {
     displayMode: 'percent',   // 'percent' | 'value'
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
+    minValue: 10,             // eingelesene Positionen unter diesem Wert (€) nicht übernehmen (0 = aus)
     watchMinWeight: 2,        // gezielte News-Suche (lokal) für Positionen ab dieser Gewichtung (%)
     autoRefreshMin: 30,       // automatische Aktualisierung bei geöffneter App (0 = aus)
     autoBackup: true,         // Sicherung in gewähltes Verzeichnis (sofern unterstützt)

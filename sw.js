@@ -1,6 +1,6 @@
 // Service Worker: App offline verfügbar machen und Klicks auf Benachrichtigungen behandeln.
 // Bei Änderungen an App-Dateien die Versionsnummer erhöhen.
-const CACHE = 'depot-news-v1.6.0';
+const CACHE = 'depot-news-v1.7.0';
 const SHELL = [
   './', 'index.html', 'datenschutz.html', 'manifest.webmanifest',
   'css/app.css',

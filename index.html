@@ -146,6 +146,12 @@
         </label>
         <label class="check"><input type="checkbox" name="askOnStart"> Beim Start nach neuer Depot-Datei fragen</label>
 
+        <h2>Einlesen</h2>
+        <label>Positionen mit einem Wert unter … € nicht einlesen
+          <input name="minValue" type="number" min="0" step="1" inputmode="decimal">
+        </label>
+        <p class="muted small">Gilt für eingelesene Tabellen (0 = aus). Positionen ohne Wertangabe und von Hand angelegte Positionen bleiben erhalten.</p>
+
         <h2>Suchliste</h2>
         <label>News für Positionen ab Gewichtung (%)
           <input name="watchMinWeight" type="number" min="0" max="100" step="0.5">
