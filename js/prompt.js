@@ -9,10 +9,11 @@ export const PROMPT_HEADER = 'ISIN;WKN;Name;Typ;Wert (in €);Gewicht (in %)';
 /** @param {{maxRows?: number}} opts */
 export function buildScreenshotPrompt({ maxRows = 2000 } = {}) {
   const n = Math.max(10, Math.round(Number(maxRows) || 2000));
-  return `Im Anhang sind ein oder mehrere Screenshots meines Wertpapierdepots. Erstelle daraus eine CSV-Datei, in der alle Fonds und ETFs in ihre Einzeltitel aufgelöst sind (Look-through). Nutze dafür die Recherche bzw. Websuche gründlich (Deep Research), damit insgesamt bis zu ${n} Einzeltitel zusammenkommen.
+  return `Im Anhang sind Screenshots eines Wertpapierdepots (z. B. aus der App oder Website einer Bank oder eines Brokers, eventuell mehrere Seiten oder mehrere Depots). Erstelle daraus eine CSV-Datei, in der alle Fonds und ETFs in ihre Einzeltitel aufgelöst sind (Look-through). Nutze dafür die Recherche bzw. Websuche gründlich (Deep Research), damit insgesamt bis zu ${n} Einzeltitel zusammenkommen.
 
 Schritt 1 – Depot lesen
 - Lies jede Position aus den Screenshots: Name, ISIN bzw. WKN und aktueller Wert in Euro (falls nur Stückzahl und Kurs zu sehen sind: Stückzahl × Kurs).
+- Zeigen die Screenshots mehrere Depots oder überlappende Seiten, alle Positionen zusammen erfassen, doppelt sichtbare aber nur einmal.
 - Übernimm nur, was wirklich zu sehen ist. Unleserliches nicht raten, sondern in der Zusammenfassung nennen.
 
 Schritt 2 – Fonds und ETFs auflösen
@@ -33,7 +34,7 @@ ${PROMPT_HEADER}
 - Name kurz und gebräuchlich, so wie er in Nachrichten vorkommt (z. B. „Apple“ statt „APPLE INC. REGISTERED SHARES DL -,00001“).
 - Zahlen mit Komma als Dezimalzeichen, ohne Tausenderpunkte und ohne Währungszeichen (z. B. 1234,56).
 - Gewicht = Anteil am gesamten Depot in Prozent mit 4 Nachkommastellen; alle Zeilen ergeben zusammen 100.
-- Der Gesamtwert der CSV entspricht dem Depotwert im Screenshot (Abweichung höchstens durch Rundung).
+- Der Gesamtwert der CSV entspricht dem Depotwert in den Screenshots (Abweichung höchstens durch Rundung).
 - ISIN und WKN nur eintragen, wenn sie sicher bekannt sind – nichts erfinden, sonst leer lassen.
 - Stelle die CSV als herunterladbare Datei „${PROMPT_FILE}“ (UTF-8) bereit.
 

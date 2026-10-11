@@ -1103,11 +1103,11 @@ function bindEvents() {
     $('#promptText').value = text;
     $('#promptOpen').href = 'https://claude.ai/new?q=' + encodeURIComponent(text);
   };
-  $('#promptBtn').addEventListener('click', () => {
+  document.querySelectorAll('.prompt-open').forEach(b => b.addEventListener('click', () => {
     $('#promptRows').value = maxImport();
     updatePrompt();
     $('#promptDlg').showModal();
-  });
+  }));
   $('#promptRows').addEventListener('input', updatePrompt);
   const copyPrompt = async () => {
     const text = $('#promptText').value;
