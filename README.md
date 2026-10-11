@@ -24,7 +24,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
 | **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* WKN (auch ausländische, z. B. 865985 = Apple) – Name, ISIN, WKN, Ticker, Typ und Suchbegriff kommen von onvista (Rückfall: Wikidata); bei mehreren Treffern zur Auswahl |
-| **Suchliste (lokal)** | News für Positionen ab 2 % Gewichtung (unter „Mehr“ einstellbar, 0 = alle); Positionen und Suchbegriffe bleiben auf dem Gerät – mehrere Personen können die App unabhängig nutzen |
+| **Suchliste (lokal)** | Übersicht unter **„Mehr → Suchliste“**: alle Positionen mit ihren Suchbegriffen (antippen zum Ändern). News für Positionen ab 2 % Gewichtung (einstellbar, 0 = alle); Positionen und Suchbegriffe bleiben auf dem Gerät – mehrere Personen können die App unabhängig nutzen |
 | **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
@@ -36,6 +36,12 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 1. Seite in **Safari** öffnen: `https://t9c7nzmp9d-design.github.io/Claudia-Portfolio-News-Check/`
 2. **Teilen → Zum Home-Bildschirm** – dann läuft sie wie eine App (Vollbild, Benachrichtigungen ab iOS 16.4).
 3. Beim ersten Start „Tabelle hochladen“ → Datei aus *Dateien* / iCloud Drive wählen, oder überspringen.
+
+> **Wichtig:** Safari und die Home-Bildschirm-App haben **getrennte Speicher**. Ein in Safari eingelesenes Depot ist in der
+> Home-Bildschirm-App nicht vorhanden (und umgekehrt). Außerdem löscht Safari Webseiten-Daten nach 7 Tagen ohne Nutzung.
+> Deshalb die App installieren und **nur über das Home-Symbol** öffnen. Unter „Mehr → Datensicherung“ zeigt die App, wo und
+> wann das Depot zuletzt gespeichert wurde. Regelmäßig „Sicherung speichern“ – eine Sicherung lässt sich auch direkt bei der
+> Einrichtung wieder laden.
 
 **Hinweis zu „lokales Verzeichnis“:** Safari (iPhone/iPad/Mac) erlaubt Webseiten keinen dauerhaften Verzeichniszugriff.
 Dort fragt die App beim Start nach einer neuen Version der Datei („Gibt es eine neue Version …?“) und du wählst sie mit einem Tipp.

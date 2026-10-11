@@ -2,13 +2,13 @@
 
 import { $, $$, esc, uid, parseNumber, fmtMoney, fmtNumber, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
 import { importFile, parseSheets, recomputeWeights, FIELD_LABELS } from './parser.js';
-import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, ASSET_TYPES } from './assets.js';
+import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, excludedTerms, ASSET_TYPES } from './assets.js';
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
 import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
-import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
+import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.9.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -192,6 +192,7 @@ function renderNews() {
 function renderLookup() {
   const q = $('#lookupInput').value.trim();
   const out = $('#lookupResult');
+  $('#lookupClose').hidden = !q;
   if (!q) { out.innerHTML = ''; return; }
   const nq = norm(q);
   const up = q.toUpperCase().replace(/\s/g, '');
@@ -311,6 +312,7 @@ async function renderSettings() {
   f.notify.checked = s.notify && ('Notification' in window) && Notification.permission === 'granted';
   f.notifyMinWeight.value = s.notifyMinWeight;
   f.watchMinWeight.value = s.watchMinWeight;
+  renderWatchList();
   f.minValue.value = s.minValue ?? 10;
   let hint = '';
   if (!('Notification' in window)) {
@@ -323,6 +325,14 @@ async function renderSettings() {
   }
   $('#notifyHint').textContent = hint;
   $('#backupInfo').textContent = state.lastBackupAt ? `Letzte Sicherung: ${fmtDateTime(state.lastBackupAt)}` : 'Noch keine Sicherung erstellt.';
+  const where = isIOS ? (isStandalone ? 'in der Home-Bildschirm-App' : 'in Safari') : 'in diesem Browser';
+  $('#storageInfo').innerHTML = (saveStatus.ok
+    ? `✓ Depot gespeichert ${where}: <strong>${state.portfolio.positions.length} Positionen</strong>${state.savedAt ? `, zuletzt ${esc(fmtDateTime(state.savedAt))}` : ''}.`
+    : `<span class="warn-text">⚠ Speichern fehlgeschlagen (${esc(saveStatus.error)}). Bitte Sicherung speichern.</span>`)
+    + (state.persisted === true ? ' Dauerhaft gespeichert.' : '')
+    + (isIOS && !isStandalone
+      ? '<br><span class="warn-text">Hinweis: Safari und die Home-Bildschirm-App haben getrennte Speicher, und Safari löscht Daten nach 7 Tagen ohne Nutzung. Empfehlung: App über „Teilen → Zum Home-Bildschirm“ installieren und nur von dort öffnen.</span>'
+      : '');
   $('#autoBackupChk').checked = s.autoBackup;
   $('#dirInfo').textContent = !supportsDir
     ? 'Dieser Browser kann kein Verzeichnis dauerhaft verbinden (z. B. Safari auf iPhone). Sicherungen werden über „Teilen → In Dateien sichern“ oder als Download gespeichert.'
@@ -331,6 +341,84 @@ async function renderSettings() {
   $('#chooseDirBtn').hidden = !supportsDir;
   $('#autoBackupChk').closest('label').hidden = !supportsDir;
   $('#versionInfo').textContent = `Version ${APP_VERSION}`;
+}
+
+/** Übersicht der lokalen Suchliste: Positionen ab Schwelle mit ihren Suchbegriffen. */
+function renderWatchList() {
+  const ids = newsTopIds();
+  const ps = state.portfolio.positions.filter(p => ids.has(p.id)).sort((a, b) => (b.weight || 0) - (a.weight || 0));
+  const box = $('#watchList');
+  if (!box) return;
+  if (!ps.length) { box.innerHTML = '<p class="muted small">Keine Position in der Suchliste.</p>'; return; }
+  box.innerHTML = `<p class="small"><strong>${ps.length} Positionen in der Suchliste</strong> – antippen, um die Suchbegriffe zu ändern:</p>
+    <div class="imp-scroll"><table class="mini watch"><thead><tr><th>Position</th><th class="num">Anteil</th><th>Suchbegriffe</th></tr></thead><tbody>${
+      ps.map(p => `<tr data-edit="${esc(p.id)}"><td>${esc(p.name)}</td><td class="num">${esc(fmtPercent(p.weight, 1))}</td>
+        <td>${esc(splitTerms(p.searchTerm || p.name).join(' · '))}${excludedTerms(p.searchTerm || '').length ? `<span class="muted"> (ohne: ${esc(excludedTerms(p.searchTerm).join(', '))})</span>` : ''}</td></tr>`).join('')
+    }</tbody></table></div>`;
+}
+
+// ---------------------------------------------------------------- Anleitung (README) in der App
+
+const README_SKIP = /^(Veröffentlichen|Entwicklung|Lizenz|Ideen)/;
+
+/** Sehr einfacher Markdown-Leser für die README (Überschriften, Listen, Tabellen, Code, Links, Fett). */
+export function renderMarkdown(md) {
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) =>
+      /^https?:\/\/github\.com\//.test(url) || !/^https?:/.test(url) ? label : `<a href="${url}" target="_blank" rel="noopener">${label}</a>`);
+  const out = [];
+  const lines = md.replace(/\r/g, '').split('\n');
+  let skip = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const h = l.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      if (h[1].length <= 2) skip = h[1].length === 2 && README_SKIP.test(h[2]);
+      if (!skip) out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`);
+      continue;
+    }
+    if (skip) continue;
+    if (l.startsWith('```')) {
+      const code = [];
+      while (++i < lines.length && !lines[i].startsWith('```')) code.push(lines[i]);
+      out.push(`<pre>${esc(code.join('\n'))}</pre>`);
+    } else if (/^\|/.test(l)) {
+      const rows = [];
+      while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]);
+      i--;
+      const cells = r => r.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const body = rows.filter(r => !/^\|[\s:|-]+\|$/.test(r));
+      out.push(`<table class="mini">${body.map((r, k) => `<tr>${cells(r).map(c => k ? `<td>${inline(c)}</td>` : `<th>${inline(c)}</th>`).join('')}</tr>`).join('')}</table>`);
+    } else if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
+      const items = [];
+      const ordered = /^\s*\d+\./.test(l);
+      while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ''));
+      i--;
+      out.push(`<${ordered ? 'ol' : 'ul'}>${items.map(t => `<li>${inline(t)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`);
+    } else if (/^>\s?/.test(l)) {
+      out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`);
+    } else if (l.trim()) {
+      const para = [l];
+      while (i + 1 < lines.length && lines[i + 1].trim() && !/^(#|\||```|>|\s*([-*]|\d+\.)\s)/.test(lines[i + 1])) para.push(lines[++i]);
+      out.push(`<p>${inline(para.join(' '))}</p>`);
+    }
+  }
+  return out.join('\n');
+}
+
+async function showReadme() {
+  const dlg = $('#readmeDlg');
+  dlg.showModal();
+  try {
+    const r = await fetch('README.md', { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    $('#readmeBody').innerHTML = renderMarkdown(await r.text());
+  } catch (e) {
+    $('#readmeBody').textContent = 'Die Anleitung konnte nicht geladen werden (' + e.message + ').';
+  }
 }
 
 function renderAll() {
@@ -404,6 +492,7 @@ function applyImport(res, mode, kind) {
   renderAll();
   autoBackup();
   setTimeout(fetchMissingQuotes, 400); // einmalig Kurse für neue Positionen
+  requestPersistence().then(p => { state.persisted = p; });
 }
 
 const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
@@ -976,7 +1065,7 @@ function askForNewVersion() {
   if (!state.settings.askOnStart || !src || src.kind === 'dir') return;
   const text = src.kind === 'sample'
     ? 'Du nutzt das <strong>Musterdepot</strong>. Eigene Depot-Tabelle einlesen?'
-    : `Gibt es eine neue Version von „${esc(src.fileName)}“? (zuletzt eingelesen ${esc(timeAgo(src.importedAt))})`;
+    : `Gespeichert: <strong>${state.portfolio.positions.length} Positionen</strong> aus „${esc(src.fileName)}“ (eingelesen ${esc(timeAgo(src.importedAt))}). Neue Version einlesen?`;
   showBanner(text, [
     { label: 'Datei wählen', primary: true, onClick: () => pickFile('import') },
     ...(supportsDir ? [{ label: 'Verzeichnis', onClick: chooseDirectory }] : []),
@@ -992,6 +1081,7 @@ function bindEvents() {
   // Onboarding
   $('#obDirBtn').addEventListener('click', async () => { if (await chooseDirectory()) $('#onboardDlg').close(); });
   $('#obFileBtn').addEventListener('click', () => { $('#onboardDlg').close(); pickFile('import'); });
+  $('#obRestoreBtn').addEventListener('click', () => { $('#onboardDlg').close(); $('#backupInput').value = ''; $('#backupInput').click(); });
   $('#obSkipBtn').addEventListener('click', async () => {
     $('#onboardDlg').close();
     await loadSample();
@@ -1020,9 +1110,20 @@ function bindEvents() {
   });
   $('#fileInput').addEventListener('cancel', () => { if (!state.onboarded) openOnboarding(); });
   $('#backupInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) restoreFromFile(f); });
+  $('#backupInput').addEventListener('cancel', () => { if (!state.onboarded) openOnboarding(); });
 
   // Lookup + Umschalter
   $('#lookupInput').addEventListener('input', renderLookup);
+  $('#lookupClose').addEventListener('click', () => {
+    $('#lookupInput').value = '';
+    renderLookup();
+    $('#lookupInput').blur();
+  });
+  $('#readmeLink').addEventListener('click', e => { e.preventDefault(); showReadme(); });
+  $('#watchList').addEventListener('click', e => {
+    const b = e.target.closest('[data-edit]');
+    if (b) openPosEditor(b.dataset.edit);
+  });
   $('#modeSwitch').addEventListener('change', e => {
     state.settings.displayMode = e.target.checked ? 'value' : 'percent';
     save();
@@ -1245,6 +1346,18 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  // Fehlt der Zustand in localStorage (z. B. vom System geleert), aus der IndexedDB-Kopie wiederherstellen
+  if (!state.onboarded || !state.portfolio.positions.length) {
+    const copy = await loadBackupCopy();
+    if (copy?.onboarded && copy.portfolio.positions.length) {
+      state = copy;
+      saveState(state, true);
+      setTimeout(() => toast(`Depot wiederhergestellt: ${state.portfolio.positions.length} Positionen.`), 500);
+    }
+  }
+  // Beim Wechsel in den Hintergrund / Schließen sofort speichern
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
+  window.addEventListener('pagehide', flushSave);
   renderAll();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
@@ -1253,6 +1366,7 @@ async function init() {
     openOnboarding();
     return;
   }
+  requestPersistence().then(p => { state.persisted = p; });
   const hasDir = supportsDir && await checkDirectoryOnStart();
   if (!hasDir) askForNewVersion();
   scheduleAutoRefresh();

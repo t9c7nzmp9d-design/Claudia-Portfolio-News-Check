@@ -64,25 +64,72 @@ export function migrate(s) {
 }
 
 let saveTimer = null;
+let pendingState = null;
+/** Letzter Speicherstatus (für die Anzeige unter „Mehr“). */
+export const saveStatus = { ok: true, at: null, error: '' };
+
+/**
+ * Speichert den Zustand doppelt: in localStorage (sofort lesbar beim Start) und als Kopie in IndexedDB
+ * (Rückfall, falls localStorage geleert wurde oder voll ist). Fehler werden gemeldet statt verschluckt.
+ */
 export function saveState(state, immediate = false) {
+  pendingState = state;
   const write = () => {
+    pendingState = null;
+    // Nachrichtenliste begrenzen, damit der Speicher nicht überläuft
+    state.news.items = state.news.items.slice(0, 600);
+    state.news.known = state.news.known.slice(-3000);
+    state.news.read = state.news.read.slice(-3000);
+    state.savedAt = Date.now();
+    const json = JSON.stringify(state);
     try {
-      // Nachrichtenliste begrenzen, damit localStorage nicht überläuft
-      state.news.items = state.news.items.slice(0, 600);
-      state.news.known = state.news.known.slice(-3000);
-      state.news.read = state.news.read.slice(-3000);
-      localStorage.setItem(KEY, JSON.stringify(state));
+      localStorage.setItem(KEY, json);
+      Object.assign(saveStatus, { ok: true, at: state.savedAt, error: '' });
     } catch (e) {
-      console.warn('Speichern fehlgeschlagen', e);
+      // Speicher voll o. ä.: News-Liste kürzen und Depot auf jeden Fall sichern
+      try {
+        localStorage.setItem(KEY, JSON.stringify({ ...state, news: { ...state.news, items: state.news.items.slice(0, 100), known: [], read: [] } }));
+        Object.assign(saveStatus, { ok: true, at: state.savedAt, error: '' });
+      } catch (e2) {
+        Object.assign(saveStatus, { ok: false, error: e2.message || String(e2) });
+        console.warn('Speichern fehlgeschlagen', e2);
+      }
     }
+    idbSet('state', json).catch(() => {});
   };
   clearTimeout(saveTimer);
   if (immediate) write(); else saveTimer = setTimeout(write, 250);
 }
 
+/** Ausstehende Speicherung sofort schreiben (z. B. wenn die App in den Hintergrund geht). */
+export function flushSave() {
+  if (pendingState) { clearTimeout(saveTimer); saveState(pendingState, true); }
+}
+
+/** Kopie aus IndexedDB laden, falls localStorage leer ist (z. B. vom System geleert). */
+export async function loadBackupCopy() {
+  try {
+    const json = await idbGet('state');
+    return json ? migrate(JSON.parse(json)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bittet den Browser, die Daten dauerhaft zu behalten (nicht automatisch zu löschen). */
+export async function requestPersistence() {
+  try {
+    if (!navigator.storage?.persist) return null;
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return null;
+  }
+}
+
 export function clearAll() {
   localStorage.removeItem(KEY);
-  return idbDel('dir').catch(() => {}).then(() => idbDel('file').catch(() => {}));
+  return idbDel('state').catch(() => {}).then(() => idbDel('dir')).catch(() => {}).then(() => idbDel('file').catch(() => {}));
 }
 
 // ---------- Sicherung ----------
