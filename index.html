@@ -78,6 +78,7 @@
           <button id="importBtn" class="btn primary" type="button">Datei einlesen</button>
           <button id="addPosBtn" class="btn" type="button">+ Position</button>
           <button id="exportPosBtn" class="btn" type="button">Als CSV exportieren</button>
+          <button id="promptBtn" class="btn" type="button">Prompt: Screenshot → CSV</button>
         </div>
       </div>
       <div class="row-between list-head">
@@ -308,6 +309,28 @@
   </dialog>
 
   <!-- Hinweis Sortierung -->
+  <dialog id="promptDlg" class="dlg dlg-wide">
+    <form method="dialog" class="dlg-body">
+      <h2>Depot-Screenshot in CSV umwandeln (mit Claude)</h2>
+      <ol class="small">
+        <li>Prompt kopieren.</li>
+        <li>In Claude einen neuen Chat öffnen, <strong>Recherche (Research)</strong> einschalten, Screenshot(s) des Depots anhängen und den Prompt einfügen.</li>
+        <li>Die fertige Datei <em>depot-aufgeloest.csv</em> speichern und hier mit „Datei einlesen“ laden.</li>
+      </ol>
+      <label>Höchstens … Zeilen (Einzeltitel)
+        <input id="promptRows" type="number" min="10" step="100" inputmode="numeric">
+      </label>
+      <textarea id="promptText" class="prompt-text" rows="12" readonly></textarea>
+      <p class="muted small">Die App sendet dabei nichts. Screenshot und Prompt gibst du selbst an Claude (Anthropic) weiter –
+        Name, Kontonummer und Ähnliches vorher am besten abdecken.</p>
+      <div class="btn-row">
+        <button id="promptCopy" class="btn primary" type="button">Prompt kopieren</button>
+        <a id="promptOpen" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude öffnen</a>
+        <button class="btn ghost" value="cancel">Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="rankDlg" class="dlg">
     <form method="dialog" class="dlg-body">
       <h2>So wird sortiert</h2>

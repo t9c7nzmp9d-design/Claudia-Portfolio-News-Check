@@ -241,3 +241,23 @@ test('Tausenderpunkte ohne Nachkommastellen (1.500 → 1500)', () => {
   assert.equal(byName.Siemens.value, 12000);
   assert.equal(byName.Siemens.quantity, 1000);
 });
+
+test('CSV im Format des Claude-Prompts (aufgelöste Fonds) wird erkannt', async () => {
+  const { buildScreenshotPrompt, PROMPT_HEADER } = await import('../js/prompt.js');
+  const p = buildScreenshotPrompt({ maxRows: 1500 });
+  assert.match(p, /bis zu 1500 Einzeltitel/);
+  assert.ok(p.includes(PROMPT_HEADER));
+  const csv = [PROMPT_HEADER,
+    'US0378331005;865985;Apple;Aktie;1234,56;12,3456',
+    'US5949181045;870747;Microsoft;Aktie;1100;10,9999',
+    ';;Kasse/Derivate iShares Core MSCI World;Cash;50,5;0,5050',
+    'IE00B4L5Y983;A0RPWH;Rest iShares Core MSCI World;Fonds;7615,94;76,1495'].join('\n');
+  const res = rowsToPositions(parseCsv(csv));
+  assert.equal(res.positions.length, 4);
+  const apple = res.positions.find(x => x.name === 'Apple');
+  assert.equal(apple.value, 1234.56);
+  assert.equal(apple.type, 'Aktie');
+  assert.equal(apple.wkn, '865985');
+  assert.equal(res.positions.find(x => x.name.startsWith('Rest')).type, 'Fonds');
+  assert.equal(res.positions.find(x => x.name.startsWith('Kasse')).type, 'Cash');
+});

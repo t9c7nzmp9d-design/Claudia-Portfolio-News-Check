@@ -6,9 +6,10 @@ import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, s
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
 import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
+import { buildScreenshotPrompt } from './prompt.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.0.3';
+const APP_VERSION = '2.1.0';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
@@ -1096,6 +1097,25 @@ function bindEvents() {
   $$('.tabbar button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
   $('#refreshBtn').addEventListener('click', () => refreshNews());
   $('#rankInfoBtn').addEventListener('click', () => $('#rankDlg').showModal());
+  // Prompt für Claude: Screenshot → CSV mit aufgelösten Fonds
+  const updatePrompt = () => {
+    const text = buildScreenshotPrompt({ maxRows: $('#promptRows').value || maxImport() });
+    $('#promptText').value = text;
+    $('#promptOpen').href = 'https://claude.ai/new?q=' + encodeURIComponent(text);
+  };
+  $('#promptBtn').addEventListener('click', () => {
+    $('#promptRows').value = maxImport();
+    updatePrompt();
+    $('#promptDlg').showModal();
+  });
+  $('#promptRows').addEventListener('input', updatePrompt);
+  const copyPrompt = async () => {
+    const text = $('#promptText').value;
+    try { await navigator.clipboard.writeText(text); toast('Prompt kopiert – jetzt in Claude einfügen.'); }
+    catch { $('#promptText').focus(); $('#promptText').select(); toast('Bitte den markierten Text kopieren.'); }
+  };
+  $('#promptCopy').addEventListener('click', copyPrompt);
+  $('#promptOpen').addEventListener('click', () => { navigator.clipboard?.writeText($('#promptText').value).catch(() => {}); });
 
   // Onboarding
   $('#obDirBtn').addEventListener('click', async () => { if (await chooseDirectory()) $('#onboardDlg').close(); });
