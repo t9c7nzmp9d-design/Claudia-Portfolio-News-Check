@@ -5,24 +5,18 @@ import { DEFAULT_SOURCES } from './sources.js';
 import { uid } from './util.js';
 
 const KEY = 'pnc-state-v1';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export function defaultSettings() {
   return {
-    provider: 'pool',         // 'pool' (News-Sammlung der GitHub Action) | 'auto' | 'gdelt' | 'gnews'
-    poolUrl: '',              // leer = automatisch aus der GitHub-Pages-Adresse
-    proxyUrl: '',             // eigener CORS-Proxy, z. B. Cloudflare Worker
-    publicProxy: true,        // öffentlichen Ausweich-Proxy nutzen, wenn direkter Abruf scheitert
     languages: ['de', 'en'],
     timespanDays: 7,
-    maxPositions: 20,         // News für die N größten Positionen
     bucket: 'day',            // Zeitfenster für Sortierung
     displayMode: 'percent',   // 'percent' | 'value'
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
     autoRefreshMin: 30,       // automatische Aktualisierung bei geöffneter App (0 = aus)
     autoBackup: true,         // Sicherung in gewähltes Verzeichnis (sofern unterstützt)
-    useFeeds: true,
     askOnStart: true          // beim Start nach neuer Depot-Datei fragen (ohne Verzeichniszugriff)
   };
 }
@@ -60,10 +54,8 @@ export function migrate(s) {
   for (const def of DEFAULT_SOURCES) {
     if (!out.sources.some(x => x.domain === def.domain)) out.sources.push({ id: uid(), builtin: true, ...def, enabled: false });
   }
-  // v1 → v2: neuer Standard „auto“ mit Ausweichweg, falls GDELT im Browser blockiert wird
-  if ((s.schema || 1) < 2 && out.settings.provider === 'gdelt') out.settings.provider = 'auto';
-  // v2 → v3: die Live-Suche war im Browser unzuverlässig → News-Sammlung als Standard
-  if ((s.schema || 1) < 3 && ['auto', 'gdelt'].includes(out.settings.provider)) out.settings.provider = 'pool';
+  // v4: Live-Suche (GDELT/Google/Proxys) entfällt – alte Einstellungen entfernen
+  for (const k of ['provider', 'poolUrl', 'proxyUrl', 'publicProxy', 'maxPositions', 'useFeeds', 'batchSize']) delete out.settings[k];
   out.schema = SCHEMA_VERSION;
   return out;
 }

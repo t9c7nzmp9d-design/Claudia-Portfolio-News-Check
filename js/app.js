@@ -1,14 +1,14 @@
 // Hauptlogik der Oberfläche.
 
 import { $, $$, esc, uid, parseNumber, fmtMoney, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
-import { importFile, recomputeWeights, FIELD_LABELS } from './parser.js';
+import { importFile, parseSheets, recomputeWeights, FIELD_LABELS } from './parser.js';
 import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, ASSET_TYPES } from './assets.js';
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
 import { lookupSecurity } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -80,8 +80,7 @@ function fmtPos(p, mode = displayMode()) {
 /** IDs der Positionen, für die News abgerufen werden (größte N mit aktiviertem Abruf). */
 function newsTopIds() {
   return new Set([...state.portfolio.positions].filter(p => p.newsEnabled !== false && p.type !== 'Cash')
-    .sort((a, b) => (b.weight || 0) - (a.weight || 0))
-    .slice(0, state.settings.provider === 'pool' ? Infinity : state.settings.maxPositions).map(p => p.id));
+    .map(p => p.id));
 }
 
 function totalValue() {
@@ -207,7 +206,7 @@ function renderLookup() {
         <button class="btn small" type="button" data-act="filter" data-pos="${esc(p.id)}">News (${n})</button>
         <button class="btn small ghost" type="button" data-act="edit" data-pos="${esc(p.id)}">Bearbeiten</button>
       </div>
-      ${top.has(p.id) ? '' : `<p class="muted small hit-note">Für diese Position werden keine News abgerufen (${p.newsEnabled === false ? 'deaktiviert' : `nicht unter den ${state.settings.maxPositions} größten Positionen – unter „Mehr“ anpassbar`}).</p>`}
+      ${top.has(p.id) ? '' : `<p class="muted small hit-note">Für diese Position sind News abgeschaltet (Schalter unter „Depot“).</p>`}
     </div>`;
   }).join('') + (hits.length > 5 ? `<p class="muted small">… und ${hits.length - 5} weitere</p>` : '');
 }
@@ -236,7 +235,7 @@ function renderDepot() {
     <li class="pos-row ${newsOn(p) ? '' : 'news-off'}"><button type="button" class="pos" data-pos="${esc(p.id)}">
       <div class="pos-main">
         <span class="pos-name">${esc(p.name)}</span>
-        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) ? ` · außerhalb der Top ${state.settings.maxPositions}` : ''}</span>
+        <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
       <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span></div>
@@ -282,18 +281,13 @@ function renderSources() {
 async function renderSettings() {
   const f = $('#settingsForm');
   const s = state.settings;
-  f.provider.value = s.provider;
-  f.proxyUrl.value = s.proxyUrl;
-  f.publicProxy.checked = s.publicProxy !== false;
   f.lang_de.checked = s.languages.includes('de');
   f.lang_en.checked = s.languages.includes('en');
   f.timespanDays.value = String(s.timespanDays);
-  f.maxPositions.value = s.maxPositions;
   const pi = state.news.poolInfo;
-  $('#poolHint').textContent = s.provider === 'pool'
-    ? 'Eine GitHub Action sammelt alle 30 Minuten die Schlagzeilen aller Quellen; die App sucht darin lokal nach deinen Positionen – dein Depot verlässt das Gerät nicht.'
-      + (pi?.generatedAt ? ` Stand der Sammlung: ${fmtDateTime(pi.generatedAt)}, ${pi.count} Artikel.` : '')
-    : 'Live-Suche: Suchbegriffe werden direkt an den Nachrichtendienst gesendet. Im Browser oft durch CORS blockiert.';
+  $('#poolHint').textContent = 'News kommen aus der News-Sammlung: Alle 30 Minuten werden die Schlagzeilen aller Quellen '
+    + 'gesammelt; die App sucht darin auf deinem Gerät nach deinen Positionen.'
+    + (pi?.generatedAt ? ` Stand: ${fmtDateTime(pi.generatedAt)}, ${pi.count} Artikel.` : '');
   f.bucket.value = s.bucket;
   f.autoRefreshMin.value = String(s.autoRefreshMin);
   f.askOnStart.checked = s.askOnStart;
@@ -370,43 +364,86 @@ function applyImport(res, mode, kind) {
   autoBackup();
 }
 
-function importReportHtml(res) {
-  const cols = Object.entries(res.mapping).sort((a, b) => a[1] - b[1]).map(([f, c]) => {
-    const head = res.headerCells?.[c];
-    return `<li><b>${esc(FIELD_LABELS[f] || f)}</b> ← ${head ? '„' + esc(head) + '“' : 'Spalte ' + (c + 1)}</li>`;
-  }).join('');
-  // Vorbelegung: bisherige Auswahl bei bekannten Positionen, sonst an (Cash aus)
+const FIELD_OPTIONS = [['', 'ignorieren'], ...Object.entries(FIELD_LABELS)];
+
+function importReportHtml(res, { colsOpen = false } = {}) {
+  // Vorbelegung der News-Schalter: bisherige Auswahl bei bekannten Positionen, sonst an (Cash aus)
   const old = state.portfolio.positions;
   for (const p of res.positions) {
     const o = old.find(x => keyMatches(x, p));
     p.newsChoice ??= o ? o.newsEnabled !== false : p.type !== 'Cash';
   }
-  const rows = res.positions.map((p, i) => ({ p, i })).sort((a, b) => b.p.weight - a.p.weight).map(({ p, i }) =>
-    `<tr><td>${esc(p.name)}<div class="muted small">${esc(p.type)}</div></td><td class="num">${esc(fmtPercent(p.weight))}</td>
+  const hasMoney = res.positions.some(p => Number.isFinite(p.value));
+  const rows = res.positions.map((p, i) => ({ p, i })).sort((a, b) => (b.p.weight || 0) - (a.p.weight || 0)).map(({ p, i }) =>
+    `<tr><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}</div></td>
+      ${hasMoney ? `<td class="num">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '–')}</td>` : ''}
+      <td class="num">${esc(fmtPercent(p.weight))}</td>
       <td class="num">${newsSwitch(String(i), p.newsChoice, p.name, 'data-imp')}</td></tr>`).join('');
   const types = Object.entries(res.positions.reduce((m, p) => { m[p.type] = (m[p.type] || 0) + 1; return m; }, {}))
     .map(([t, n]) => `${n}× ${t}`).join(', ');
+  const missingName = res.mapping.name === undefined;
+  const missingAmount = res.mapping.value === undefined && res.mapping.weight === undefined && res.mapping.quantity === undefined;
+  const colRows = (res.columns || []).map(c => `
+    <tr>
+      <td><b>${esc(c.header || `Spalte ${c.index + 1}`)}</b><div class="muted small">${esc(c.samples.join(' · ') || '(leer)')}</div></td>
+      <td><select data-col="${c.index}" aria-label="Bedeutung von ${esc(c.header || 'Spalte ' + (c.index + 1))}">
+        ${FIELD_OPTIONS.map(([v, l]) => `<option value="${v}" ${c.field === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+      </select></td>
+    </tr>`).join('');
+  const sheetSel = res.sheetNames?.length > 1
+    ? `<label class="small">Tabellenblatt <select id="impSheet">${res.sheetNames.map(n => `<option ${n === res.sheet ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>`
+    : '';
   return `<p><strong>${esc(res.fileName)}</strong>${res.sheetCount > 1 ? ` – Blatt „${esc(res.sheet)}“` : ''}:
-      ${res.positions.length} Positionen erkannt (${esc(types)}).${res.transposed ? ' <em>Tabelle war gedreht (Felder in Zeilen) – automatisch umgestellt.</em>' : ''}</p>
-    <details><summary>Erkannte Spalten</summary><ul class="small">${cols}</ul></details>
+      <strong>${res.positions.length} Positionen</strong>${types ? ` (${esc(types)})` : ''}.${res.transposed ? ' <em>Tabelle war gedreht – automatisch umgestellt.</em>' : ''}</p>
+    ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}
+    ${/\.numbers$/i.test(res.fileName) ? `<p class="small muted">Apple-Numbers-Dateien werden nicht immer vollständig gelesen. Sieht unten etwas falsch aus:
+      in Numbers <em>Ablage → Exportieren → CSV</em> (oder Excel) wählen und diese Datei einlesen.</p>` : ''}
+    <details class="advanced" ${colsOpen || missingName || missingAmount || !res.positions.length ? 'open' : ''}>
+      <summary>Spalten prüfen und korrigieren</summary>
+      <p class="muted small">Falls eine Spalte falsch gedeutet wurde, hier die richtige Bedeutung wählen – die Positionen werden sofort neu eingelesen.</p>
+      ${sheetSel}
+      <table class="mini cols"><thead><tr><th>Spalte in deiner Datei</th><th>Bedeutung</th></tr></thead><tbody>${colRows}</tbody></table>
+    </details>
+    ${res.positions.length ? `
     <div class="row-between imp-head">
-      <strong>News pro Position</strong>
-      <span><button type="button" class="link-btn small" data-imp-all="1">Alle an</button> · <button type="button" class="link-btn small" data-imp-all="0">Alle aus</button></span>
+      <strong>Erkannte Positionen</strong>
+      <span class="small">News: <button type="button" class="link-btn small" data-imp-all="1">alle an</button> · <button type="button" class="link-btn small" data-imp-all="0">alle aus</button></span>
     </div>
-    <p class="muted small">Schalter aus = für diese Position keine News. Jederzeit änderbar unter „Depot“.</p>
-    <div class="imp-scroll"><table class="mini"><thead><tr><th>Position</th><th class="num">Anteil</th><th class="num">News</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p id="impCount" class="muted small"></p>
-    ${res.warnings?.length ? `<p class="warn-text small">${res.warnings.map(esc).join('<br>')}</p>` : ''}`;
+    <div class="imp-scroll"><table class="mini"><thead><tr><th>Position</th>${hasMoney ? '<th class="num">Wert</th>' : ''}<th class="num">Anteil</th><th class="num">News</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p id="impCount" class="muted small"></p>` : '<p id="impCount" class="warn-text">Noch keine Positionen erkannt – bitte oben mindestens die Spalte „Name“ oder „ISIN / Kennung“ zuordnen.</p>'}`;
+}
+
+/** Liest die Tabelle mit geänderter Spaltenzuordnung bzw. anderem Blatt neu ein. */
+function reparseImport({ sheet = null, changedCol = null, field = null } = {}) {
+  const prev = pendingImport.res;
+  let mapping = null;
+  if (changedCol !== null) {
+    mapping = { ...prev.mapping };
+    for (const [f, c] of Object.entries(mapping)) if (c === changedCol || f === field) delete mapping[f];
+    if (field) mapping[field] = changedCol;
+  }
+  const res = parseSheets(prev.sheets, { sheet: sheet ?? prev.sheet, mapping: sheet ? null : mapping });
+  // Bereits gesetzte News-Schalter übernehmen
+  for (const p of res.positions) {
+    const o = prev.positions.find(x => keyMatches(x, p));
+    if (o) p.newsChoice = o.newsChoice;
+  }
+  pendingImport.res = { ...prev, ...res, fileName: prev.fileName, lastModified: prev.lastModified, sheets: prev.sheets };
+  $('#importReport').innerHTML = importReportHtml(pendingImport.res, { colsOpen: true });
+  updateImpCount();
 }
 
 function updateImpCount() {
   const ps = pendingImport?.res.positions || [];
-  $('#impCount').textContent = `News für ${ps.filter(p => p.newsChoice).length} von ${ps.length} Positionen`;
+  const okBtn = $('#importDlg button[value=ok]');
+  if (okBtn) okBtn.disabled = !ps.length;
+  if (ps.length) $('#impCount').textContent = `News für ${ps.filter(p => p.newsChoice).length} von ${ps.length} Positionen`;
 }
 
 async function handleFile(file, { auto = false, kind = 'file' } = {}) {
   try {
     const res = await importFile(file);
+    if (auto && !res.positions.length) throw new Error('keine Positionen erkannt – bitte die Datei über „Datei einlesen“ wählen und die Spalten zuordnen.');
     if (auto) {
       applyImport(res, 'replace', kind);
       toast(`„${file.name}“ eingelesen – ${res.positions.length} Positionen`);
@@ -660,13 +697,13 @@ async function runOnlineLookup({ auto = false } = {}) {
   status.textContent = `Suche „${query}“ …`;
   $('#onlineLookupBtn').disabled = true;
   try {
-    const { candidates, errors } = await lookupSecurity(query);
+    const { candidates, errors, hint } = await lookupSecurity(query);
     if (seq !== lookupSeq) return; // veraltete Antwort
     lookupCandidates = candidates;
     if (!candidates.length) {
-      status.textContent = errors.length && errors.length >= 2
+      status.textContent = errors.length
         ? 'Online-Suche nicht erreichbar – Felder bitte von Hand ausfüllen.'
-        : 'Nichts gefunden. Tipp: ISIN eingeben oder den Namen genauer schreiben.';
+        : hint || 'Nichts gefunden. Tipp: ISIN eingeben oder den Namen genauer schreiben.';
       $('#onlineCandidates').innerHTML = '';
       return;
     }
@@ -958,6 +995,11 @@ function bindEvents() {
     if (confirm('Für alle Positionen keine News mehr anzeigen?')) setNewsEnabled(state.portfolio.positions.map(p => p.id), false);
   });
   $('#importReport').addEventListener('change', e => {
+    if (e.target.dataset.col !== undefined && pendingImport) {
+      reparseImport({ changedCol: Number(e.target.dataset.col), field: e.target.value || null });
+      return;
+    }
+    if (e.target.id === 'impSheet' && pendingImport) { reparseImport({ sheet: e.target.value }); return; }
     const i = e.target.dataset.imp;
     if (i === undefined || !pendingImport) return;
     pendingImport.res.positions[Number(i)].newsChoice = e.target.checked;
@@ -1050,13 +1092,9 @@ function bindEvents() {
   $('#settingsForm').addEventListener('change', async e => {
     const f = e.currentTarget;
     const s = state.settings;
-    s.provider = f.provider.value;
-    s.proxyUrl = f.proxyUrl.value.trim();
-    s.publicProxy = f.publicProxy.checked;
     s.languages = [f.lang_de.checked && 'de', f.lang_en.checked && 'en'].filter(Boolean);
     if (!s.languages.length) { s.languages = ['de']; f.lang_de.checked = true; }
     s.timespanDays = Number(f.timespanDays.value);
-    s.maxPositions = Math.max(1, Math.min(100, Number(f.maxPositions.value) || 20));
     s.bucket = f.bucket.value;
     s.autoRefreshMin = Number(f.autoRefreshMin.value);
     s.askOnStart = f.askOnStart.checked;
@@ -1072,7 +1110,6 @@ function bindEvents() {
       }
       s.notify = f.notify.checked;
     }
-    if (s.provider === 'gnews' && !s.proxyUrl && !s.publicProxy) toast('Für Google News einen CORS-Proxy eintragen oder den Ausweich-Proxy erlauben.', 6000);
     save();
     scheduleAutoRefresh();
     renderSettings();

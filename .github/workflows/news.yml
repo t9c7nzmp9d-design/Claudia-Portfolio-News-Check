@@ -39,6 +39,7 @@ jobs:
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
       - name: In Branch news-data veröffentlichen
+        if: github.ref == 'refs/heads/main'
         env:
           TOKEN: ${{ github.token }}
         run: |
