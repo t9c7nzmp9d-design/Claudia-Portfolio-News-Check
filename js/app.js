@@ -8,7 +8,7 @@ import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
 const supportsDir = 'showDirectoryPicker' in window;
@@ -251,8 +251,9 @@ function renderDepot() {
   const topIds = newsTopIds();
   // News je Typ (z. B. ETF): Schalter; ausgeschaltete Typen werden gar nicht erst gesucht
   const off = newsOffTypes();
-  const onCount = pf.positions.filter(p => newsOn(p) && !off.has(p.type || 'Sonstiges')).length;
-  $('#newsCount').textContent = `News für ${onCount} von ${pf.positions.length} Positionen`;
+  // gezählt wird, was tatsächlich gesucht wird: Schalter, Typ und Mindest-Gewichtung
+  $('#newsCount').textContent = `News für ${topIds.size} von ${pf.positions.length} Positionen`
+    + (Number(state.settings.watchMinWeight) > 0 ? ` (ab ${pctText(state.settings.watchMinWeight)} %)` : '');
   const typeCounts = pf.positions.reduce((m, p) => { const t = p.type || 'Sonstiges'; m[t] = (m[t] || 0) + 1; return m; }, {});
   const typeOrder = Object.keys(typeCounts).sort((a, b) => typeCounts[b] - typeCounts[a]);
   $('#typeNews').hidden = !typeOrder.length;
@@ -1320,7 +1321,10 @@ function bindEvents() {
     s.maxImport = Math.max(1, Math.round(Number(f.maxImport.value) || 2000));
     const oldMin = s.watchMinWeight;
     s.watchMinWeight = readPct(f.watchMinWeight.value, s.watchMinWeight);
-    if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste
+    if (s.watchMinWeight !== oldMin) {
+      toast(`Suchliste: ${newsTopIds().size} Positionen ab ${pctText(s.watchMinWeight)} %.`);
+      if (s.watchMinWeight < oldMin) setTimeout(() => refreshNews({ silent: true }), 300); // neue Positionen in der Suchliste
+    }
     if (e.target.name === 'notify') {
       if (f.notify.checked) {
         if (!('Notification' in window)) { f.notify.checked = false; toast('Benachrichtigungen werden hier nicht unterstützt.'); }
