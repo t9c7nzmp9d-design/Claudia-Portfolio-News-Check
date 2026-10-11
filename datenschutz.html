@@ -38,7 +38,7 @@
 
     <h2>3. Deine Depotdaten bleiben auf deinem Gerät</h2>
     <ul>
-      <li>Eingelesene Tabellen (CSV, Excel, Numbers) werden <strong>im Browser</strong> ausgewertet – die Datei wird nicht hochgeladen.</li>
+      <li>Eingelesene Tabellen (Excel, Numbers, CSV) werden <strong>im Browser</strong> ausgewertet – die Datei wird nicht hochgeladen.</li>
       <li>Positionen, Quellen, Einstellungen und gelesene Artikel werden im lokalen Speicher des Browsers
         (<code>localStorage</code>/<code>IndexedDB</code>) abgelegt. Sie verlassen das Gerät nur, wenn du selbst eine Sicherung exportierst oder teilst.</li>
       <li>Wenn du ein lokales Verzeichnis verbindest (nur in unterstützten Browsern), merkt sich der Browser die Freigabe;
@@ -52,16 +52,17 @@
       Die App lädt nur diese Datei von <code>raw.githubusercontent.com</code> (GitHub, USA) und sucht darin
       <strong>auf deinem Gerät</strong> nach deinen Positionen. Dabei werden weder Suchbegriffe noch Depotdaten übertragen –
       GitHub erhält lediglich technisch notwendige Daten wie deine IP-Adresse.</p>
-    <p>Die Begriffe in <code>news/watchlist.txt</code> sind öffentlich. Trägst du dort eigene Suchbegriffe ein (Depot →
-      „Suchbegriffe für News-Sammlung“), sind diese für jeden sichtbar – Werte und Gewichtungen jedoch nie.</p>
+    <p>Die News-Sammlung ist für alle Nutzer gleich und enthält <strong>keine</strong> nutzerbezogenen Suchbegriffe.
+      Deine Suchbegriffe und deine Positionsliste bleiben ausschließlich auf deinem Gerät.</p>
     <p>Ist die News-Sammlung nicht erreichbar, ruft die App die RSS-Feeds einiger Quellen (tagesschau.de, CNBC,
       MarketWatch/WSJ, onvista) direkt ab – ohne Suchbegriffe. Dabei wird technisch bedingt deine IP-Adresse übermittelt.
       Gleiches gilt für RSS-Feeds eigener Quellen, die du selbst hinterlegst.</p>
 
     <h2>4a. Online-Suche beim Anlegen einer Position</h2>
     <p>Bei „+ Position“ ergänzt die App fehlende Angaben, indem sie den eingegebenen <strong>Namen, die ISIN oder WKN</strong>
-      an <strong>Wikidata</strong> (<code>query.wikidata.org</code>, Wikimedia Foundation, USA) sendet. Es wird nur dieser eine Suchbegriff übertragen,
-      keine Werte und kein übriges Depot. Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO – die Suche erfolgt nur auf deine Eingabe.</p>
+      an <strong>onvista</strong> (<code>api.onvista.de</code>, onvista media GmbH, Deutschland) und – falls dort nichts gefunden
+      wird – an <strong>Wikidata</strong> (<code>query.wikidata.org</code>, Wikimedia Foundation, USA) sendet. Es wird nur dieser
+      eine Suchbegriff übertragen, keine Werte und kein übriges Depot. Rechtsgrundlage: Art. 6 Abs. 1 lit. a/f DSGVO.</p>
 
     <h2>5. Externe Links</h2>
     <p>Beim Öffnen eines Artikels verlässt du die App und rufst die Website des jeweiligen Mediums auf; dort gelten deren

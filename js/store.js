@@ -15,6 +15,7 @@ export function defaultSettings() {
     displayMode: 'percent',   // 'percent' | 'value'
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
+    watchMinWeight: 2,        // gezielte News-Suche (lokal) für Positionen ab dieser Gewichtung (%)
     autoRefreshMin: 30,       // automatische Aktualisierung bei geöffneter App (0 = aus)
     autoBackup: true,         // Sicherung in gewähltes Verzeichnis (sofern unterstützt)
     askOnStart: true          // beim Start nach neuer Depot-Datei fragen (ohne Verzeichniszugriff)
@@ -55,7 +56,8 @@ export function migrate(s) {
     if (!out.sources.some(x => x.domain === def.domain)) out.sources.push({ id: uid(), builtin: true, ...def, enabled: false });
   }
   // v4: Live-Suche (GDELT/Google/Proxys) entfällt – alte Einstellungen entfernen
-  for (const k of ['provider', 'poolUrl', 'proxyUrl', 'publicProxy', 'maxPositions', 'useFeeds', 'batchSize']) delete out.settings[k];
+  for (const k of ['provider', 'poolUrl', 'proxyUrl', 'publicProxy', 'maxPositions', 'useFeeds', 'batchSize', 'githubToken']) delete out.settings[k];
+  delete out.watchSync;
   out.schema = SCHEMA_VERSION;
   return out;
 }

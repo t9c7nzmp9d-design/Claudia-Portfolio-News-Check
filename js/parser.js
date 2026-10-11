@@ -195,6 +195,19 @@ function isTotalRow(row, mapping) {
   return TOTAL_ROW.test(name) || TOTAL_ROW.test(id) || (!name && !id && TOTAL_ROW.test(first));
 }
 
+/** Mehr belegte Spalten als diese ergeben für eine Depot-Tabelle keinen Sinn → Hinweis im Import-Dialog. */
+export const MAX_COLUMNS = 6;
+
+function countUsedColumns(headerCells, dataRows) {
+  const width = Math.max(headerCells.length, ...dataRows.map(r => r.length), 0);
+  let n = 0;
+  for (let c = 0; c < width; c++) {
+    const filled = v => v !== null && v !== undefined && String(v).trim() !== '';
+    if (filled(headerCells[c]) || dataRows.some(r => filled(r[c]))) n++;
+  }
+  return n;
+}
+
 /**
  * Wandelt eine Tabelle (Array von Zeilen) in Positionen um.
  * Gibt { positions, mapping, transposed, headerRow, warnings } zurück.
@@ -211,8 +224,13 @@ export function rowsToPositions(rawRows, forcedMapping = null) {
   const hasHeader = header.index >= 0;
   const headerCells = hasHeader ? rows[header.index] : [];
   const dataRows = hasHeader ? rows.slice(header.index + 1) : rows;
+  // Mehr als MAX_COLUMNS Spalten bringen keinen Nutzen – nur ein Hinweis, eingelesen wird trotzdem
+  const usedColumns = countUsedColumns(headerCells, dataRows);
   const { mapping, width } = mapColumns(headerCells, dataRows, forcedMapping);
   const warnings = [];
+  if (usedColumns > MAX_COLUMNS) {
+    warnings.push(`Hinweis: Die Tabelle hat ${usedColumns} Spalten. Gebraucht werden höchstens ${MAX_COLUMNS} (z. B. ISIN, WKN, Name, Typ, Wert, Gewicht) – Spalten ohne erkennbare Bedeutung werden ignoriert.`);
+  }
   // Spaltenübersicht für die manuelle Korrektur im Import-Dialog
   const fieldOf = Object.fromEntries(Object.entries(mapping).map(([f, c]) => [c, f]));
   const columns = Array.from({ length: width }, (_, c) => ({
@@ -286,7 +304,7 @@ export function rowsToPositions(rawRows, forcedMapping = null) {
     warnings.push('Weder Wert noch Gewichtung gefunden – alle Positionen werden gleich gewichtet.');
   }
   const score = recognized.length * 2 + Object.keys(mapping).length * 3 + (header.score || 0);
-  return { positions: recognized, mapping, transposed, headerRow: hasHeader ? header.index : null, headerCells, columns, warnings, score };
+  return { positions: recognized, mapping, transposed, headerRow: hasHeader ? header.index : null, headerCells, columns, warnings, score, usedColumns };
 }
 
 function normalizeType(t) {
@@ -333,10 +351,23 @@ export function recomputeWeights(positions) {
 
 // ---------- Datei lesen ----------
 
-function decodeText(buf) {
-  const utf8 = new TextDecoder('utf-8').decode(buf);
+/**
+ * Erkennt die Textkodierung: UTF-8 (mit/ohne BOM), UTF-16 LE/BE (Excel „Unicode-Text“, Numbers-Export
+ * mit UTF-16) und als Rückfall Windows-1252.
+ */
+export function decodeText(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  // UTF-16 ohne BOM: bei ASCII-Text ist jedes zweite Byte 0
+  const sample = b.subarray(0, Math.min(b.length, 2000));
+  let zeroEven = 0, zeroOdd = 0;
+  for (let i = 0; i < sample.length; i++) if (sample[i] === 0) (i % 2 ? zeroOdd++ : zeroEven++);
+  if (zeroOdd > sample.length / 4) return new TextDecoder('utf-16le').decode(b);
+  if (zeroEven > sample.length / 4) return new TextDecoder('utf-16be').decode(b);
+  const utf8 = new TextDecoder('utf-8').decode(b);
   if (!utf8.includes('�')) return utf8.replace(/^﻿/, '');
-  return new TextDecoder('windows-1252').decode(buf);
+  return new TextDecoder('windows-1252').decode(b);
 }
 
 export function parseCsv(text) {
@@ -365,7 +396,7 @@ export function parseCsv(text) {
   return rows;
 }
 
-/** Liest eine Datei und gibt Tabellenblätter als { name, rows }[] zurück. */
+/** Liest eine Datei (CSV/TXT/TSV, Excel, Numbers) und gibt Tabellenblätter als { name, rows }[] zurück. */
 export async function readTableFile(file) {
   const name = file.name || 'datei';
   const ext = name.split('.').pop().toLowerCase();
@@ -379,7 +410,7 @@ export async function readTableFile(file) {
     wb = window.XLSX.read(buf, { type: 'array', cellDates: true, raw: false });
   } catch (e) {
     if (ext === 'numbers') {
-      throw new Error('Diese Numbers-Datei konnte nicht gelesen werden. Bitte in Numbers über „Exportieren → Excel“ oder „CSV“ speichern und erneut wählen.');
+      throw new Error('Diese Numbers-Datei konnte nicht gelesen werden. Bitte in Numbers über „Ablage → Exportieren → CSV“ (oder Excel) speichern und diese Datei wählen.');
     }
     throw e;
   }

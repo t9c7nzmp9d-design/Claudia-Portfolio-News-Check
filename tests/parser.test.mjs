@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-// SheetJS wie im Browser als globales Skript laden
+// SheetJS wie im Browser als globales Skript laden (für Excel-/Numbers-Dateien)
 const sandbox = { console, Uint8Array, ArrayBuffer, DataView, TextDecoder, TextEncoder, Date, Math };
 sandbox.self = sandbox;
 vm.runInNewContext(readFileSync(new URL('../vendor/xlsx.full.min.js', import.meta.url), 'utf8'), sandbox);
@@ -38,8 +38,8 @@ test('ISIN-Prüfung & WKN', () => {
   assert.equal(wknFromIsin('DE0007164600'), '716460');
 });
 
-test('Musterdepot.xlsx wird erkannt', async () => {
-  const res = await importFile(fakeFile('sample/Musterdepot.xlsx'));
+for (const file of ['sample/Musterdepot.xlsx', 'sample/Musterdepot.csv']) test(`${file} wird erkannt`, async () => {
+  const res = await importFile(fakeFile(file));
   assert.equal(res.positions.length, 29);
   const apple = res.positions.find(p => p.isin === 'US0378331005');
   assert.equal(apple.name, 'Apple');
@@ -95,12 +95,12 @@ const names = res => res.positions.map(p => p.name);
 
 test('DKB-Stil: „Wertpapierbezeichnung“, „Bestand“, „Kurswert in EUR“', () => {
   const res = rowsToPositions(parseCsv(
-    'Bestand;Einheit;Wertpapierbezeichnung;ISIN;WKN;Kurs;Kurswert in EUR\n' +
-    '10;Stück;SAP SE;DE0007164600;716460;178,40;1.784,00\n' +
-    '5;Stück;Allianz SE;DE0008404005;840400;342,80;1.714,00\n'));
-  assert.equal(res.mapping.name, 2);
+    'Bestand;Wertpapierbezeichnung;ISIN;WKN;Kurs;Kurswert in EUR\n' +
+    '10;SAP SE;DE0007164600;716460;178,40;1.784,00\n' +
+    '5;Allianz SE;DE0008404005;840400;342,80;1.714,00\n'));
+  assert.equal(res.mapping.name, 1);
   assert.equal(res.mapping.quantity, 0);
-  assert.equal(res.mapping.value, 6);
+  assert.equal(res.mapping.value, 5);
   assert.deepEqual(names(res), ['SAP SE', 'Allianz SE']);
   assert.equal(res.positions[0].value, 1784);
 });
@@ -119,18 +119,18 @@ test('Sparkasse-Stil: „Gattung“ ist der Name, „Nominal/Stück“, „Kursw
 
 test('comdirect-Stil: Einstandswert wird nicht als Wert genommen, Diff. % nicht als Gewicht', () => {
   const res = rowsToPositions(parseCsv(
-    'Stück/Nom.;Bezeichnung;WKN;Einstandswert;Aktuell;Diff. %;Wert in EUR\n' +
-    '12;SAP SE;716460;1.500,00;178,40;+42,72 %;2.140,80\n' +
-    '40;Infineon;623100;1.200,00;36,12;+20,40 %;1.444,80\n'));
-  assert.equal(res.mapping.value, 6);
+    'Stück/Nom.;Bezeichnung;WKN;Einstandswert;Diff. %;Wert in EUR\n' +
+    '12;SAP SE;716460;1.500,00;+42,72 %;2.140,80\n' +
+    '40;Infineon;623100;1.200,00;+20,40 %;1.444,80\n'));
+  assert.equal(res.mapping.value, 5);
   assert.equal(res.mapping.weight, undefined);
   assert.equal(res.positions[0].value, 2140.8);
 });
 
 test('ING-Stil: „Wertpapiername“, „Stück / Nominale“, „Einstandskurs“ ist kein Kurs', () => {
   const res = rowsToPositions(parseCsv(
-    'Wertpapiername;ISIN;Stück / Nominale;Einstandskurs;Kurs;Kurswert;Gewinn / Verlust\n' +
-    'Apple Inc.;US0378331005;10;150,00;219,50;2.195,00;695,00\n'));
+    'Wertpapiername;ISIN;Stück / Nominale;Einstandskurs;Kurs;Kurswert\n' +
+    'Apple Inc.;US0378331005;10;150,00;219,50;2.195,00\n'));
   assert.equal(res.mapping.name, 0);
   assert.equal(res.mapping.price, 4);
   assert.equal(res.mapping.value, 5);
@@ -164,4 +164,33 @@ test('Kopfzeile der Nutzerin (Tabulator-getrennt, Gewicht als Bruch)', () => {
   assert.deepEqual(names(res), ['Apple', 'Bitcoin']);
   assert.equal(res.positions[0].value, 610.43);
   assert.equal(res.positions[1].symbol, 'BTC_to_EUR');
+});
+
+test('Textkodierungen: UTF-16 (Excel „Unicode-Text“, Numbers), mit und ohne BOM', async () => {
+  const { decodeText } = await import('../js/parser.js');
+  const txt = 'ISIN\tName\tWert (in €)\tGewicht (in %)\nUS0378331005\tApple\t610,43\t0,061043\n';
+  const le = Buffer.from(txt, 'utf16le');
+  const be = Buffer.from(le).swap16();
+  for (const bytes of [Buffer.concat([Buffer.from([0xFF, 0xFE]), le]), Buffer.concat([Buffer.from([0xFE, 0xFF]), be]), le, Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(txt)])]) {
+    const text = decodeText(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    assert.equal(text, txt);
+    const res = rowsToPositions(parseCsv(text));
+    assert.deepEqual(res.mapping, { isin: 0, name: 1, value: 2, weight: 3 });
+  }
+});
+
+test('Mehr als 6 Spalten → nur Hinweis, Positionen werden trotzdem eingelesen', async () => {
+  const csv = 'Bestand;Einheit;Wertpapierbezeichnung;ISIN;WKN;Kurs;Kurswert in EUR\n10;Stück;SAP SE;DE0007164600;716460;178,40;1.784,00\n';
+  const res = rowsToPositions(parseCsv(csv));
+  assert.equal(res.usedColumns, 7);
+  assert.equal(res.positions.length, 1);
+  assert.equal(res.positions[0].name, 'SAP SE');
+  assert.match(res.warnings.join(' '), /7 Spalten\. Gebraucht werden höchstens 6/);
+});
+
+test('Leere Spalten (z. B. „;;;;;;“ in Titelzeilen) zählen nicht', () => {
+  const res = rowsToPositions(parseCsv('Depotübersicht;;;;;;;;\n;;;;;;;;\nName;ISIN;Wert;;;;;;\nSAP;DE0007164600;100;;;;;;\n'));
+  assert.equal(res.usedColumns, 3);
+  assert.equal(res.warnings.length, 0);
+  assert.equal(res.positions.length, 1);
 });

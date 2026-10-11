@@ -12,7 +12,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | Bereich | Was die App kann |
 |---|---|
 | **Einrichtung** | Beim ersten Start: lokales Verzeichnis wählen *oder* Tabelle hochladen *oder* überspringen → Musterdepot |
-| **Import** | CSV (`;` `,` Tab), Excel (`.xlsx/.xls/.ods`), Apple Numbers (`.numbers`) |
+| **Import** | Tabelle (Excel `.xlsx/.xls/.ods`, Apple Numbers `.numbers`) oder CSV (`;` `,` Tab; UTF-8, UTF-16, Windows-1252). Sinnvoll sind bis zu 6 Spalten (z. B. ISIN, WKN, Name, Typ, Wert, Gewicht) – bei mehr Spalten erscheint ein Hinweis, eingelesen wird trotzdem |
 | **Spalten korrigieren** | Im Import-Dialog jede Spalte mit Beispielwerten sehen und ihre Bedeutung per Auswahl ändern – die Positionen werden sofort neu eingelesen |
 | **Automatische Erkennung** | Kopfzeile auch unter Vorspann-Zeilen, Spaltenbedeutung (ISIN, WKN, Name, Wert, Gewicht, Stück, Kurs, Währung, Typ), gedrehte Tabellen (Felder in Zeilen), deutsches/englisches Zahlenformat, Gewicht als Bruch oder %, Summenzeilen werden ignoriert, mehrere Tabellenblätter → das passendste wird gewählt |
 | **Asset-Erkennung** | ISIN mit Prüfziffer, WKN (bei deutschen ISINs automatisch abgeleitet), Typ (Aktie, ETF, Fonds, ETC, Anleihe, Krypto, Rohstoff, Cash), Land; ISIN im Namen („Apple Inc. (US0378331005)“) |
@@ -20,11 +20,12 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **News** | News-Sammlung per GitHub Action (kein Proxy, kein Schlüssel); nur aktivierte Quellen, Position muss in Überschrift oder Anreißer vorkommen; doppelte Meldungen zusammengefasst; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
-| **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* deutsche WKN – Name, ISIN, WKN, Ticker, Typ und Suchbegriff werden über Wikidata gesucht; bei mehreren Treffern zur Auswahl |
+| **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* WKN (auch ausländische, z. B. 865985 = Apple) – Name, ISIN, WKN, Ticker, Typ und Suchbegriff kommen von onvista (Rückfall: Wikidata); bei mehreren Treffern zur Auswahl |
+| **Suchliste (lokal)** | News für Positionen ab 2 % Gewichtung (unter „Mehr“ einstellbar, 0 = alle); Positionen und Suchbegriffe bleiben auf dem Gerät – mehrere Personen können die App unabhängig nutzen |
 | **News pro Position abwählen** | Schiebeschalter je Position – schon im Import-Dialog und jederzeit in „Depot“ (inkl. „Alle an/aus“). Abgewählte Positionen werden nicht abgefragt, ihre News ausgeblendet, keine Benachrichtigungen; die Auswahl bleibt beim erneuten Einlesen erhalten |
 | **Quellen** | 28 vorgeschlagene Qualitätsquellen (Agenturen, Wirtschafts- und Qualitätspresse), an-/abwählbar, eigene Quellen inkl. RSS ergänzbar |
 | **Benachrichtigungen** | Bei neuen News (optional ab Mindestgewichtung) |
-| **Datensicherung** | JSON-Sicherung speichern/laden (iPhone: Teilen → „In Dateien sichern“), automatische Sicherung ins verbundene Verzeichnis, Export als Excel/CSV |
+| **Datensicherung** | JSON-Sicherung speichern/laden (iPhone: Teilen → „In Dateien sichern“), automatische Sicherung ins verbundene Verzeichnis, Export als CSV (6 Spalten, wieder einlesbar) |
 | **Offline** | App-Oberfläche & gespeicherte News funktionieren offline (Service Worker) |
 
 ## Auf dem iPhone nutzen
@@ -52,8 +53,7 @@ Spaltennamen sind egal.
 ```
 GitHub Action „News sammeln“ (alle 30 Min., läuft auf GitHub-Servern – dort gibt es keine CORS-Sperren)
   ├─ RSS-Feeds aus news/feeds.json (Handelsblatt, FAZ, tagesschau, WSJ, FT, CNBC, BBC, …)
-  ├─ Google News für Medien ohne Feed (Reuters, AP, Bloomberg, Börsen-Zeitung, …)
-  └─ Google News für die Begriffe aus news/watchlist.txt
+  └─ Google News für Medien ohne Feed (Reuters, AP, Bloomberg, Börsen-Zeitung, …)
         ↓
   news.json im Branch „news-data“ (≈ 2.000 Artikel der letzten 7 Tage)
         ↓  eine einzige Anfrage an raw.githubusercontent.com (CORS erlaubt)
@@ -66,8 +66,8 @@ App auf dem iPhone: sucht lokal nach deinen Positionen → Depot verlässt das G
 **Quellen ändern:** `news/feeds.json` auf GitHub bearbeiten (RSS-Feed oder Domain ergänzen). In der App unter
 „Quellen“ legst du fest, welche davon angezeigt werden.
 
-**Kleinere Werte gezielt suchen:** In der App unter Depot → „Suchbegriffe für News-Sammlung“ die Begriffe kopieren und in
-`news/watchlist.txt` einfügen. ⚠️ Diese Datei ist öffentlich (nur Begriffe, keine Werte).
+**Alles Persönliche bleibt lokal:** Positionsliste und Suchbegriffe liegen nur auf dem Gerät. Die Sammlung ist für alle
+Nutzer gleich (keine nutzerbezogenen Daten im Repository) – mehrere Personen können die App gleichzeitig nutzen.
 
 **Treffergenauigkeit:** Suchbegriffe pro Position anpassen; mehrere Begriffe mit `OR`, Ausschlüsse mit ` -`, z. B.
 `Nikkei OR Topix -Nikkei Asia`. Gleiche Meldungen mehrerer Medien werden zusammengefasst („Handelsblatt + FAZ“).
@@ -112,9 +112,9 @@ js/app.js      Oberfläche, Onboarding, Import-Ablauf, Sicherung, Benachrichtigu
 js/parser.js   Datei lesen, Kopfzeile/Spalten/Ausrichtung/Zahlenformat erkennen
 js/assets.js   ISIN/WKN-Prüfung, Typ- & Suchbegriff-Erkennung
 js/news.js     News-Sammlung laden (sonst direkte Feeds), Zuordnung, Zusammenfassen, Sortierung
-js/lookup.js   Online-Suche für „+ Position“ (Wikidata)
+js/lookup.js   Online-Suche für „+ Position“ (onvista, Rückfall Wikidata)
 scripts/collect-news.mjs  Sammelskript der GitHub Action
-news/          feeds.json (Quellen) und watchlist.txt (zusätzliche Suchbegriffe)
+news/          feeds.json (Quellen der Sammlung)
 js/sources.js  vorgeschlagene Quellen
 js/store.js    lokale Speicherung, Sicherung
 vendor/        SheetJS CE 0.18.5 (Apache-2.0), lokal ausgeliefert

@@ -75,8 +75,7 @@
         <div class="btn-row">
           <button id="importBtn" class="btn primary" type="button">Datei einlesen</button>
           <button id="addPosBtn" class="btn" type="button">+ Position</button>
-          <button id="exportPosBtn" class="btn" type="button">Exportieren</button>
-          <button id="copyTermsBtn" class="btn ghost" type="button">Suchbegriffe für News-Sammlung</button>
+          <button id="exportPosBtn" class="btn" type="button">Als CSV exportieren</button>
         </div>
       </div>
       <div class="row-between list-head">
@@ -146,6 +145,13 @@
         </label>
         <label class="check"><input type="checkbox" name="askOnStart"> Beim Start nach neuer Depot-Datei fragen</label>
 
+        <h2>Suchliste</h2>
+        <label>News für Positionen ab Gewichtung (%)
+          <input name="watchMinWeight" type="number" min="0" max="100" step="0.5">
+        </label>
+        <p class="muted small">Die Suchliste (Positionen und Suchbegriffe) bleibt nur auf diesem Gerät. Die App lädt
+          allgemeine Wirtschafts-Schlagzeilen und sucht darin lokal nach diesen Positionen. 0 = alle Positionen.</p>
+
         <h2>Benachrichtigungen</h2>
         <label class="check"><input type="checkbox" name="notify"> Bei neuen News benachrichtigen</label>
         <label>Nur für Positionen ab Gewichtung (%)
@@ -200,7 +206,7 @@
   <dialog id="onboardDlg" class="dlg">
     <form method="dialog" class="dlg-body">
       <h2>Willkommen 👋</h2>
-      <p>Diese App liest deine Depot-Tabelle <strong>lokal</strong> ein (CSV, Excel oder Apple Numbers), erkennt die
+      <p>Diese App liest deine Depot-Tabelle <strong>lokal</strong> ein (Excel, Numbers oder CSV – sinnvoll sind bis zu 6 Spalten), erkennt die
         Wertpapiere und zeigt aktuelle News – sortiert nach Aktualität und Gewichtung.</p>
       <ol class="steps">
         <li><strong>Verzeichnis wählen</strong>, in dem deine Depot-Tabelle liegt – die App liest die neueste Tabelle
@@ -297,7 +303,7 @@
     </form>
   </dialog>
 
-  <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.xlsm,.ods,.numbers,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/x-iwork-numbers-sffnumbers" hidden>
+  <input id="fileInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.xlsm,.ods,.numbers,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/x-iwork-numbers-sffnumbers" hidden>
   <input id="backupInput" type="file" accept=".json,application/json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 </body>

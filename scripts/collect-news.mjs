@@ -1,7 +1,8 @@
 // Sammelt Wirtschafts-Schlagzeilen anerkannter Quellen in eine JSON-Datei.
 // Läuft als GitHub Action (siehe .github/workflows/news.yml) – dort gibt es keine
-// CORS-Sperren wie im Browser. Die App lädt nur diese Datei und ordnet die Artikel
-// lokal den eigenen Positionen zu; das Depot verlässt das Gerät dabei nicht.
+// CORS-Sperren wie im Browser. Die Sammlung enthält nur allgemeine Wirtschafts-Schlagzeilen
+// und ist für alle Nutzer gleich; sie enthält keinerlei nutzerbezogene Suchbegriffe.
+// Jede App ordnet die Artikel lokal den eigenen Positionen zu.
 //
 // Aufruf: node scripts/collect-news.mjs <ausgabe.json> [vorherige.json]
 // Keine Abhängigkeiten, Node ≥ 20.
@@ -17,8 +18,6 @@ const UA = 'Mozilla/5.0 (compatible; DepotNewsCollector/1.0; +https://github.com
 
 const root = new URL('../', import.meta.url);
 const config = JSON.parse(readFileSync(new URL('news/feeds.json', root), 'utf8'));
-const watchlist = readFileSync(new URL('news/watchlist.txt', root), 'utf8')
-  .split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
 
 // ---------- RSS/Atom ohne Bibliothek parsen ----------
 
@@ -110,23 +109,6 @@ for (const s of config.sites) {
     run: async () => parseFeed(await get(googleUrl(`site:${s.domain} when:2d`, s.lang))).map(a => ({ ...a, lang: s.lang }))
   });
 }
-// Gezielte Suche nach den Begriffen der Watchlist, beschränkt auf die bekannten Quellen
-const allSites = [...new Set([...config.feeds.map(f => f.domain), ...config.sites.map(s => s.domain)])];
-for (let i = 0; i < watchlist.length; i += 5) {
-  const terms = watchlist.slice(i, i + 5);
-  for (const lang of ['de', 'en']) {
-    const sites = allSites.filter(d => {
-      const f = config.feeds.find(x => x.domain === d) || config.sites.find(x => x.domain === d);
-      return f.lang === lang;
-    });
-    const q = `(${terms.map(quote).join(' OR ')}) (${sites.map(d => `site:${d}`).join(' OR ')}) when:3d`;
-    jobs.push({
-      label: `Google Suche ${lang}: ${terms.join(', ')}`,
-      run: async () => parseFeed(await get(googleUrl(q, lang))).map(a => ({ ...a, lang }))
-    });
-  }
-}
-
 const started = Date.now();
 const results = await pool(jobs, 4);
 
