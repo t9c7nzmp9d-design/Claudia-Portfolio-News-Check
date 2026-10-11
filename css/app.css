@@ -270,3 +270,4 @@ textarea.terms { width: 100%; min-height: 160px; font: 13px/1.4 ui-monospace, SF
 table.cols select { min-height: 36px; padding: 4px 8px; font-size: .85rem; width: 100%; }
 table.cols td { vertical-align: top; }
 table.cols td:last-child { width: 46%; }
+.tiny { font-size: .72rem; }

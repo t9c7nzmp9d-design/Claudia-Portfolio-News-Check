@@ -194,3 +194,37 @@ test('Leere Spalten (z. B. „;;;;;;“ in Titelzeilen) zählen nicht', () => {
   assert.equal(res.warnings.length, 0);
   assert.equal(res.positions.length, 1);
 });
+
+// ---- Ausrichtung (Zeilen/Spalten) mit Plausibilitätsprüfung ----
+const sampleRows = parseCsv(readFileSync(new URL('../sample/Musterdepot.csv', import.meta.url), 'utf8').replace(/^﻿/, ''));
+const sHead = sampleRows[0], sBody = sampleRows.slice(1).filter(r => r[1] && r[1] !== 'Summe');
+const T = rows => rows[0].map((_, c) => rows.map(r => r[c]));
+
+test('Ausrichtung: normale Tabellen werden nie gedreht (viele Varianten)', () => {
+  for (let n = 1; n <= 8; n++) for (let s = 0; s + n <= sBody.length; s += 5) for (const perm of [[0, 1, 2, 3], [1, 2, 3, 0], [1, 0, 2], [1, 2]]) for (const head of [true, false]) {
+    const rows = [...(head ? [perm.map(i => sHead[i])] : []), ...sBody.slice(s, s + n).map(r => perm.map(i => r[i]))];
+    const res = rowsToPositions(rows);
+    assert.equal(res.transposed, false, `n=${n} perm=${perm} head=${head}`);
+    assert.deepEqual(res.positions.map(p => p.name), sBody.slice(s, s + n).map(r => r[1]), `n=${n} perm=${perm} head=${head}`);
+  }
+});
+
+test('Ausrichtung: gedrehte Tabellen (Felder in Zeilen) werden erkannt und korrigiert', () => {
+  for (let n = 2; n <= 12; n += 2) for (const perm of [[0, 1, 2, 3], [1, 2, 3]]) for (const head of [true, false]) {
+    const rows = T([...(head ? [perm.map(i => sHead[i])] : []), ...sBody.slice(0, n).map(r => perm.map(i => r[i]))]);
+    const res = rowsToPositions(rows);
+    assert.equal(res.transposed, true, `n=${n} perm=${perm} head=${head}`);
+    assert.deepEqual(res.positions.map(p => p.name), sBody.slice(0, n).map(r => r[1]));
+  }
+});
+
+test('„SAP“ ist ein Name, keine Währung', () => {
+  const res = rowsToPositions([['ISIN', 'Name', 'Wert'], ['LU0274209740', 'Xtrackers MSCI Japan', '177,48'], ['DE0007164600', 'SAP', '140,89']]);
+  assert.deepEqual(res.positions.map(p => p.name), ['Xtrackers MSCI Japan', 'SAP']);
+});
+
+test('Ausrichtung lässt sich erzwingen (Schalter im Import-Dialog)', () => {
+  const rows = [['ISIN', 'Name', 'Wert'], ['US0378331005', 'Apple', '100']];
+  assert.equal(rowsToPositions(rows, null, 'cols').transposed, true);
+  assert.equal(rowsToPositions(rows, null, 'rows').transposed, false);
+});
