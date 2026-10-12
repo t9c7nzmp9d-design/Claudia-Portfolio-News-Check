@@ -38,8 +38,31 @@ jobs:
           mkdir -p /tmp/out
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
+      - name: CORS-Probe (temporär)
+        if: github.event_name == 'workflow_dispatch'
+        run: >
+          node scripts/probe-cors.mjs
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/snapshot"
+          "https://api.onvista.de/api/v1/news/instrument/ISIN:DE0007164600?limit=5"
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/news?limit=5"
+          "https://api.onvista.de/api/v1/news/list?entityValue=DE0007164600&limit=5"
+          "https://api.onvista.de/api/v1/news?isin=DE0007164600&limit=5"
+          "https://query1.finance.yahoo.com/v1/finance/search?q=SAP&newsCount=5&quotesCount=0"
+          "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SAP&region=US&lang=en-US"
+          "https://www.finanzen.net/rss/news"
+          "https://www.boerse-frankfurt.de/rss/news"
+          "https://www.handelsblatt.com/contentexport/feed/finanzen"
+          "https://www.n-tv.de/wirtschaft/rss"
+          "https://www.spiegel.de/wirtschaft/index.rss"
+          "https://www.faz.net/rss/aktuell/finanzen/"
+          "https://hn.algolia.com/api/v1/search?query=SAP"
+          "https://api.gdeltproject.org/api/v2/doc/doc?query=SAP&mode=artlist&format=json&maxrecords=5"
+          "https://www.bing.com/news/search?q=SAP&format=rss"
+          "https://news.google.com/rss/search?q=SAP&hl=de&gl=DE&ceid=DE:de"
+
       - name: In Branch news-data veröffentlichen
-        if: github.ref == 'refs/heads/main'
+        # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
+        if: github.event_name != 'pull_request'
         env:
           TOKEN: ${{ github.token }}
         run: |
