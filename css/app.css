@@ -299,3 +299,9 @@ table.watch td { vertical-align: top; }
 .type-head { list-style: none; margin: 12px 4px 2px; font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .prompt-text { width: 100%; font: .8rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: inherit; resize: vertical; }
 a.btn { text-decoration: none; }
+/* Vorführmodus: Euro-Beträge ausblenden */
+#privacyBtn .eye-closed { display: none; }
+body.hide-values #privacyBtn .eye-open { display: none; }
+body.hide-values #privacyBtn .eye-closed { display: block; }
+body.hide-values #privacyBtn { color: var(--accent, #0f766e); }
+body.hide-values input.secret:not(:focus) { filter: blur(6px); }

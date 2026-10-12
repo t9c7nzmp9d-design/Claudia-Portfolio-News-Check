@@ -13,6 +13,7 @@ export function defaultSettings() {
     timespanDays: 7,
     bucket: 'day',            // Zeitfenster für Sortierung
     displayMode: 'percent',   // 'percent' | 'value'
+    hideValues: false,        // Vorführmodus: Euro-Beträge (Gesamt- und Positionswerte) ausblenden
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
     maxImport: 2000,          // höchstens so viele Positionen einlesen (die ersten der Tabelle)

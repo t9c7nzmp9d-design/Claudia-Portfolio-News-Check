@@ -9,7 +9,7 @@ import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { buildScreenshotPrompt } from './prompt.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.1.1';
+const APP_VERSION = '2.2.0';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
@@ -87,8 +87,12 @@ function choose(title, options) {
 
 function displayMode() { return state.settings.displayMode === 'value' ? 'value' : 'percent'; }
 
+/** Euro-Beträge des Depots – im Vorführmodus („Beträge ausblenden“) maskiert. */
+const valuesHidden = () => !!state.settings.hideValues;
+const money = n => (valuesHidden() ? '•••• €' : fmtMoney(n));
+
 function fmtPos(p, mode = displayMode()) {
-  if (mode === 'value') return Number.isFinite(p.value) ? fmtMoney(p.value) : 'Wert n. v.';
+  if (mode === 'value') return Number.isFinite(p.value) ? money(p.value) : 'Wert n. v.';
   return Number.isFinite(p.weight) ? fmtPercent(p.weight) : '–';
 }
 
@@ -124,10 +128,13 @@ function renderHeader() {
   const total = totalValue();
   const src = state.portfolio.source;
   const parts = [`${ps.length} Positionen`];
-  if (total) parts.push(fmtMoney(total));
+  if (total) parts.push(money(total));
   if (src?.kind === 'sample') parts.push('Musterdepot');
   $('#portfolioSummary').textContent = ps.length ? parts.join(' · ') : 'Noch kein Depot geladen';
   $('#modeSwitch').checked = displayMode() === 'value';
+  document.body.classList.toggle('hide-values', valuesHidden());
+  $('#privacyBtn').setAttribute('aria-pressed', String(valuesHidden()));
+  $('#privacyBtn').title = $('#privacyBtn').ariaLabel = valuesHidden() ? 'Euro-Beträge einblenden' : 'Euro-Beträge ausblenden';
   $$('.toggle-label').forEach(l => l.classList.toggle('on', l.dataset.for === displayMode()));
   // Vorschläge für das Eingabefeld
   $('#lookupList').innerHTML = ps.slice(0, 300).map(p =>
@@ -241,7 +248,7 @@ function renderDepot() {
   const srcText = !src ? 'Keine Datei eingelesen'
     : src.kind === 'sample' ? 'Musterdepot (Beispieldaten)'
       : `${src.fileName}${src.sheet && src.sheetCount > 1 ? ' – Blatt „' + src.sheet + '“' : ''} · eingelesen ${fmtDateTime(src.importedAt)}`;
-  $('#depotMeta').innerHTML = `${esc(srcText)}${total ? '<br>Gesamtwert ' + esc(fmtMoney(total)) : ''}`;
+  $('#depotMeta').innerHTML = `${esc(srcText)}${total ? '<br>Gesamtwert ' + esc(money(total)) : ''}`;
 
   const f = norm($('#depotFilter').value);
   const sort = $('#depotSort').value;
@@ -276,7 +283,7 @@ function renderDepot() {
         <span class="muted small">${esc([p.type, p.isin || p.wkn || p.symbol].filter(Boolean).join(' · '))}${p.manual ? ' · manuell' : ''}${newsOn(p) && !topIds.has(p.id) && p.type !== 'Cash' ? (off.has(p.type || 'Sonstiges') ? ` · News für ${esc(p.type || 'Sonstiges')} aus` : ` · unter ${esc(pctText(state.settings.watchMinWeight))} %`) : ''}</span>
         <span class="wbar"><span style="width:${Math.max(1, (p.weight || 0) / maxW * 100).toFixed(1)}%"></span></span>
       </div>
-      <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '')}</span>${p.priceAt ? `<span class="muted tiny">${esc(fmtQuote(p))}</span>` : ''}</div>
+      <div class="pos-num"><b>${esc(fmtPercent(p.weight))}</b><span class="muted small">${esc(Number.isFinite(p.value) ? money(p.value) : '')}</span>${p.priceAt ? `<span class="muted tiny">${esc(fmtQuote(p))}</span>` : ''}</div>
     </button>${newsSwitch(p.id, newsOn(p), p.name, 'data-news')}</li>`;
   }).join('') || '<li class="muted empty">Keine Positionen.</li>';
 }
@@ -527,7 +534,7 @@ function importReportHtml(res, { colsOpen = false } = {}) {
   const kept = res.positions.slice(0, limit).map((p, i) => ({ p, i })).sort((a, b) => (b.p.weight || 0) - (a.p.weight || 0));
   const rows = kept.slice(0, PREVIEW).map(({ p, i }) =>
     `<tr><td><b>${esc(p.name)}</b><div class="muted small">${esc([p.isin || p.wkn || p.symbol, p.type].filter(Boolean).join(' · '))}</div></td>
-      ${hasMoney ? `<td class="num">${esc(Number.isFinite(p.value) ? fmtMoney(p.value) : '–')}</td>` : ''}
+      ${hasMoney ? `<td class="num">${esc(Number.isFinite(p.value) ? money(p.value) : '–')}</td>` : ''}
       <td class="num">${esc(fmtPercent(p.weight))}</td>
       <td class="num">${newsSwitch(String(i), p.newsChoice, p.name, 'data-imp')}</td></tr>`).join('');
   const types = Object.entries(res.positions.reduce((m, p) => { m[p.type] = (m[p.type] || 0) + 1; return m; }, {}))
@@ -1097,6 +1104,13 @@ function bindEvents() {
   $$('.tabbar button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
   $('#refreshBtn').addEventListener('click', () => refreshNews());
   $('#rankInfoBtn').addEventListener('click', () => $('#rankDlg').showModal());
+  $('#privacyBtn').addEventListener('click', () => {
+    state.settings.hideValues = !valuesHidden();
+    save(true);
+    renderAll();
+    if (!$('#view-more').hidden) renderSettings();
+    toast(valuesHidden() ? 'Euro-Beträge ausgeblendet – nur Prozente sichtbar.' : 'Euro-Beträge wieder sichtbar.');
+  });
   // Prompt für Claude: Screenshot → CSV mit aufgelösten Fonds
   const updatePrompt = () => {
     const text = buildScreenshotPrompt({ maxRows: $('#promptRows').value || maxImport() });

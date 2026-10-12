@@ -24,6 +24,10 @@
       <h1>Depot-News</h1>
       <p id="portfolioSummary" class="muted small">–</p>
     </div>
+    <button id="privacyBtn" class="icon-btn" type="button" aria-pressed="false" aria-label="Euro-Beträge ausblenden" title="Euro-Beträge ausblenden">
+      <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10.7 10.7 0 0 1 12 6c6.4 0 10 6 10 6a17.6 17.6 0 0 1-3.2 3.9M6.6 6.6C3.9 8.3 2 12 2 12s3.6 6 10 6c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 0 0 4.2 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button id="refreshBtn" class="icon-btn" aria-label="News aktualisieren" title="News aktualisieren">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
@@ -281,11 +285,11 @@
         <label>Typ <select name="type"></select></label>
       </div>
       <div class="grid2">
-        <label>Wert (€) <input name="value" inputmode="decimal"></label>
+        <label>Wert (€) <input name="value" class="secret" inputmode="decimal"></label>
         <label>Gewichtung (%) <input name="weight" inputmode="decimal"></label>
       </div>
       <div class="grid2">
-        <label>Stückzahl <input name="quantity" inputmode="decimal"></label>
+        <label>Stückzahl <input name="quantity" class="secret" inputmode="decimal"></label>
         <label>Kurs <input name="price" inputmode="decimal"></label>
       </div>
       <p id="priceNote" class="muted small"></p>
