@@ -1,10 +1,17 @@
-// Temporär: prüft, welche News-Endpunkte direkten Browserzugriff (CORS) erlauben.
-const urls = process.argv.slice(2);
-for (const u of urls) {
+// Temporär: prüft, ob der onvista-Snapshot News enthält.
+for (const u of process.argv.slice(2)) {
   try {
-    const r = await fetch(u, { headers: { Origin: 'https://t9c7nzmp9d-design.github.io', 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1' }, signal: AbortSignal.timeout(15000) });
-    const t = await r.text();
-    console.log(`${r.status} ACAO=${r.headers.get('access-control-allow-origin')} type=${r.headers.get('content-type')} len=${t.length} ${u}`);
-    console.log('   ', t.slice(0, 400).replace(/\s+/g, ' '));
-  } catch (e) { console.log(`ERR ${e.message} ${u}`); }
+    const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+    const j = await r.json();
+    console.log(r.status, r.headers.get('access-control-allow-origin'), u, 'keys:', Object.keys(j).join(','));
+    const walk = (o, path) => {
+      if (!o || typeof o !== 'object') return;
+      for (const [k, v] of Object.entries(o)) {
+        const p = path + '.' + k;
+        if (/news|article|headline/i.test(k)) console.log('  ', p, JSON.stringify(v).slice(0, 700));
+        else if (typeof v === 'object') walk(v, p);
+      }
+    };
+    walk(j, '');
+  } catch (e) { console.log('ERR', e.message, u); }
 }
