@@ -16,7 +16,8 @@ export function defaultSettings() {
     hideValues: false,
     divProvider: 'fmp',       // Dividenden-Dienst: 'fmp' | 'av'
     divApiKey: '',            // eigener API-Schlüssel (nur lokal, nicht in Sicherungen)
-    divMinValue: 5000,        // Dividenden nur für Positionen ab diesem Wert (€)        // Vorführmodus: Euro-Beträge (Gesamt- und Positionswerte) ausblenden
+    divMinValue: 5000,        // Dividenden nur für Positionen ab diesem Wert (€)
+    divHidden: [],            // im Dividenden-Bereich ausgeblendete Titel (Depot bleibt unverändert)        // Vorführmodus: Euro-Beträge (Gesamt- und Positionswerte) ausblenden
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
     maxImport: 2000,          // höchstens so viele Positionen einlesen (die ersten der Tabelle)

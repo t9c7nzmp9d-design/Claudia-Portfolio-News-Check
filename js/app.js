@@ -10,7 +10,7 @@ import { buildScreenshotPrompt } from './prompt.js';
 import { DIV_PROVIDERS, DivStopError, fetchDividends, summarizeDividends, needsRefresh } from './dividends.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.3.1';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
@@ -790,7 +790,9 @@ function dividendTitles() {
     const k = divKey(w);
     if (!map.has(k)) map.set(k, { ...w, source: 'watch' });
   }
-  return [...map.values()];
+  // Im Dividenden-Bereich ausgeblendete Titel (das Depot bleibt unverändert)
+  const hidden = new Set(state.settings.divHidden || []);
+  return [...map.values()].filter(t => !hidden.has(divKey(t)));
 }
 
 function renderDividends() {
@@ -806,10 +808,12 @@ function renderDividends() {
 
   const titles = dividendTitles();
   const rows = [];
+  const noData = [];
   let noPay = 0;
   for (const t of titles) {
     const c = state.dividends[divKey(t)];
     const sum = c?.events ? summarizeDividends(c.events) : null;
+    if (c?.noData) { noData.push({ t, c, sum }); continue; }
     if (c && !c.error && sum && !sum.pays) { noPay++; continue; }
     rows.push({ t, c, sum });
   }
@@ -817,12 +821,14 @@ function renderDividends() {
   const sortKey = r => (r.sum?.next ? '0' + r.sum.next.ex : r.sum?.last ? '1' + (99999999 - Number(r.sum.last.ex.replace(/-/g, ''))) : '2' + r.t.name);
   rows.sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
-  $('#divList').innerHTML = rows.map(({ t, c, sum }) => {
+  const itemHtml = ({ t, c, sum }) => {
     const k = esc(divKey(t));
     const meta = [t.type, t.isin || t.wkn, c?.symbol].filter(Boolean).join(' · ');
     const badge = t.source === 'watch' ? '<span class="badge">Merkliste</span>' : '';
     let body;
     if (!c) body = `<p class="muted small">${s.divApiKey ? 'Noch nicht abgerufen – „Dividenden abrufen“ tippen.' : 'Bitte zuerst einen API-Schlüssel eintragen.'}</p>`;
+    else if (c.noData) body = `<p class="muted small">Keine Ausschüttungen beim Dienst gefunden${c.tried?.length ? ` (versucht: ${esc(c.tried.join(', '))})` : c.symbol ? ` (Kürzel ${esc(c.symbol)})` : ''}.
+      Schüttet der Titel aus, bitte das Börsenkürzel prüfen – z. B. ${s.divProvider === 'av' ? 'SAP.DEX, ALV.DEX oder AAPL' : 'SAP.DE, ALV.DE oder AAPL'}.</p>`;
     else if (c.error && !c.events?.length) body = `<p class="warn-text small">${esc(c.error)}</p>`;
     else {
       const ev = sum.next || sum.last;
@@ -842,16 +848,37 @@ function renderDividends() {
       ${body}
       <div class="div-actions">
         <button class="btn small ghost" type="button" data-divsym="${k}">Kürzel${c?.symbol ? ' ändern' : ' eintragen'}</button>
-        ${t.source === 'watch' ? `<button class="btn small ghost" type="button" data-divdel="${k}">Von Merkliste entfernen</button>` : ''}
+        ${t.source === 'watch' ? `<button class="btn small ghost" type="button" data-divdel="${k}">Von Merkliste entfernen</button>`
+          : `<button class="btn small ghost" type="button" data-divhide="${k}" title="Nur hier ausblenden – das Depot bleibt unverändert">Ausblenden</button>`}
       </div>
     </li>`;
-  }).join('') || `<li class="muted empty">Keine Titel: Im Depot gibt es keine Aktie, keinen ETF und keinen Fonds ab ${esc(fmtMoney(Number(s.divMinValue) || 0))} – und die Merkliste ist leer.</li>`;
+  };
+  $('#divList').innerHTML = rows.map(itemHtml).join('')
+    + (noData.length ? `<li class="div-nodata"><details><summary>${noData.length} Titel ohne Dividendendaten (thesaurierend oder Kürzel prüfen)</summary>
+        <ul class="div-list">${noData.map(itemHtml).join('')}</ul></details></li>` : '')
+    || `<li class="muted empty">Keine Titel: Im Depot gibt es keine Aktie, keinen ETF und keinen Fonds ab ${esc(fmtMoney(Number(s.divMinValue) || 0))} – und die Merkliste ist leer.</li>`;
   const smaller = state.portfolio.positions.filter(p => DIV_TYPES.has(p.type) && !(Number(p.value) >= (Number(s.divMinValue) || 0))).length;
-  $('#divHidden').textContent = [noPay ? `${noPay} Titel ohne Ausschüttung ausgeblendet.` : '', smaller ? `${smaller} kleinere Positionen nicht berücksichtigt.` : ''].filter(Boolean).join(' ');
+  const manual = (s.divHidden || []).length;
+  $('#divHidden').innerHTML = esc([noPay ? `${noPay} Titel ohne Ausschüttung ausgeblendet.` : '', smaller ? `${smaller} kleinere Positionen nicht berücksichtigt.` : '',
+    manual ? `${manual} Titel von dir ausgeblendet.` : ''].filter(Boolean).join(' '))
+    + (manual ? ' <button class="linklike" type="button" id="divUnhide">Alle wieder einblenden</button>' : '');
   if (!divRunning) {
     const missing = titles.filter(t => needsRefresh(state.dividends[divKey(t)], { provider: s.divProvider, symbol: t.divSymbol })).length;
     $('#divStatus').textContent = !s.divApiKey ? '' : missing ? `${missing} von ${titles.length} Titeln brauchen neue Daten.` : titles.length ? 'Alle Daten sind aktuell.' : '';
   }
+}
+
+/** Basiskürzel (z. B. „SAP“) über onvista ermitteln – kostet kein Kontingent beim Dividenden-Dienst. */
+async function baseSymbolFor(t, cached) {
+  if (t.symbol && !isValidIsin(t.symbol)) return t.symbol;
+  if (cached?.baseSymbol) return cached.baseSymbol;
+  const id = t.isin || t.wkn;
+  if (!id) return '';
+  try {
+    const { candidates } = await lookupSecurity(id);
+    const c = candidates.find(x => (t.isin && x.isin === t.isin) || (t.wkn && x.wkn === t.wkn)) || candidates[0];
+    return c?.symbol || '';
+  } catch { return ''; }
 }
 
 async function refreshDividends({ force = false } = {}) {
@@ -869,7 +896,8 @@ async function refreshDividends({ force = false } = {}) {
       $('#divStatus').textContent = `Lade Dividenden … ${done + 1}/${todo.length}: ${t.name}`;
       const k = divKey(t);
       try {
-        state.dividends[k] = await fetchDividends(t, { provider: s.divProvider, key: s.divApiKey, cached: state.dividends[k], signal: divRunning.signal });
+        const base = await baseSymbolFor(t, state.dividends[k]);
+        state.dividends[k] = { ...await fetchDividends({ ...t, baseSymbol: base }, { provider: s.divProvider, key: s.divApiKey, cached: state.dividends[k], signal: divRunning.signal }), baseSymbol: base, v: 2 };
       } catch (e) {
         if (e instanceof DivStopError) { stopMsg = e.message; break; }
         failed++;
@@ -935,6 +963,12 @@ function bindDividends() {
     if (oldProvider !== s.divProvider) toast(`Datendienst: ${DIV_PROVIDERS[s.divProvider].label}. Daten werden beim nächsten Abruf neu geholt.`);
   });
   $('#divWatchBtn').addEventListener('click', searchDivWatch);
+  $('#divHidden').addEventListener('click', e => {
+    if (e.target.id !== 'divUnhide') return;
+    state.settings.divHidden = [];
+    save(true);
+    renderDividends();
+  });
   $('#divWatchInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchDivWatch(); } });
   $('#divWatchResult').addEventListener('click', e => {
     const i = e.target.closest('[data-divadd]')?.dataset.divadd;
@@ -942,7 +976,7 @@ function bindDividends() {
     const c = $('#divWatchResult')._cands?.[Number(i)];
     if (!c) return;
     if (state.dividendWatch.some(w => divKey(w) === divKey(c))) return toast('Steht schon auf der Merkliste.');
-    state.dividendWatch.push({ id: uid(), name: c.name, isin: c.isin || '', wkn: c.wkn || '', type: c.type || 'Aktie' });
+    state.dividendWatch.push({ id: uid(), name: c.name, isin: c.isin || '', wkn: c.wkn || '', type: c.type || 'Aktie', symbol: c.symbol || '' });
     save(true);
     $('#divWatchInput').value = '';
     $('#divWatchResult').innerHTML = '';
@@ -953,6 +987,13 @@ function bindDividends() {
   $('#divList').addEventListener('click', e => {
     const sym = e.target.closest('[data-divsym]')?.dataset.divsym;
     if (sym) return setDivSymbol(sym);
+    const hide = e.target.closest('[data-divhide]')?.dataset.divhide;
+    if (hide) {
+      state.settings.divHidden = [...new Set([...(state.settings.divHidden || []), hide])];
+      save(true);
+      renderDividends();
+      return toast('Im Dividenden-Bereich ausgeblendet – im Depot bleibt die Position erhalten.');
+    }
     const del = e.target.closest('[data-divdel]')?.dataset.divdel;
     if (del) {
       state.dividendWatch = state.dividendWatch.filter(w => divKey(w) !== del);

@@ -83,3 +83,36 @@ test('Alpha Vantage: Suche über Namen, Dividenden mit Ex- und Zahltag', async (
   globalThis.fetch = async () => new Response(JSON.stringify({ Information: 'We have detected your API key as XYZ and our standard API rate limit is 25 requests per day.' }));
   await assert.rejects(fetchDividends({ name: 'IBM', divSymbol: 'IBM' }, { provider: 'av', key: 'k' }), DivStopError);
 });
+
+test('Kürzel ableiten (onvista-Basiskürzel → Format des Dienstes)', async () => {
+  const { deriveSymbols } = await import('../js/dividends.js');
+  assert.deepEqual(deriveSymbols('av', 'SAP', 'DE0007164600'), ['SAP.DEX', 'SAP']);
+  assert.deepEqual(deriveSymbols('fmp', 'SAP', 'DE0007164600'), ['SAP.DE', 'SAP']);
+  assert.deepEqual(deriveSymbols('av', 'AAPL', 'US0378331005'), ['AAPL', 'AAPL.DEX']);
+  assert.deepEqual(deriveSymbols('av', '', 'DE0007164600'), []);
+});
+
+test('Alpha Vantage: abgeleitetes Kürzel zuerst (ohne Suche), bei leeren Daten das nächste', async () => {
+  const calls = [];
+  globalThis.fetch = async url => {
+    const u = new URL(String(url)); calls.push(u.searchParams.get('function') + ':' + (u.searchParams.get('symbol') || u.searchParams.get('keywords')));
+    if (u.searchParams.get('symbol') === 'ALV.DEX') return new Response(JSON.stringify({ symbol: 'ALV.DEX', data: [] }));
+    if (u.searchParams.get('symbol') === 'ALV') return new Response(JSON.stringify({ 'Error Message': 'Invalid API call.' }));
+    if (u.searchParams.get('function') === 'SYMBOL_SEARCH') return new Response(JSON.stringify({ bestMatches: [{ '1. symbol': 'ALIZF', '8. currency': 'USD' }] }));
+    return new Response(JSON.stringify({ symbol: 'ALIZF', data: [{ ex_dividend_date: '2026-05-08', payment_date: '2026-05-12', amount: '17.10' }] }));
+  };
+  const r = await fetchDividends({ name: 'Allianz SE', isin: 'DE0008404005', baseSymbol: 'ALV' }, { provider: 'av', key: 'k' });
+  assert.equal(calls[0], 'DIVIDENDS:ALV.DEX');
+  assert.equal(r.symbol, 'ALIZF');
+  assert.equal(r.events[0].amount, 17.1);
+  assert.ok(calls.length <= 4);
+});
+
+test('Ohne Daten beim Dienst: noData statt stillem Ausblenden', async () => {
+  globalThis.fetch = async url => String(url).includes('SYMBOL_SEARCH')
+    ? new Response(JSON.stringify({ bestMatches: [] }))
+    : new Response(JSON.stringify({ data: [] }));
+  const r = await fetchDividends({ name: 'iShares Core MSCI World', isin: 'IE00B4L5Y983', baseSymbol: 'EUNL' }, { provider: 'av', key: 'k' });
+  assert.equal(r.noData, true);
+  assert.deepEqual(r.tried, ['EUNL.DEX', 'EUNL']);
+});
