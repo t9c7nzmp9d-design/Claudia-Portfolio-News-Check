@@ -38,6 +38,22 @@ jobs:
           mkdir -p /tmp/out
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
+      - name: Dividenden-Probe (temporär)
+        if: github.event_name == 'workflow_dispatch'
+        run: >
+          node scripts/probe-cors.mjs
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/snapshot"
+          "https://api.onvista.de/api/v1/stocks/ISIN:US0378331005/snapshot"
+          "https://api.onvista.de/api/v1/funds/ISIN:IE00B3RBWM25/snapshot"
+          "https://api.onvista.de/api/v1/funds/ISIN:DE0008491051/snapshot"
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/dividends"
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/dividend_list"
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/corporate_actions"
+          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/events"
+          "https://api.onvista.de/api/v1/funds/ISIN:IE00B3RBWM25/distributions"
+          "https://query2.finance.yahoo.com/v8/finance/chart/SAP.DE?events=div&range=2y&interval=1mo"
+          "https://query2.finance.yahoo.com/v10/finance/quoteSummary/SAP?modules=calendarEvents,summaryDetail"
+
       - name: In Branch news-data veröffentlichen
         # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
         if: github.event_name != 'pull_request'
