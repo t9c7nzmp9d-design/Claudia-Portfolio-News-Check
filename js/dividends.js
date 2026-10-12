@@ -136,28 +136,69 @@ export function shortName(name) {
 const PROVIDER_FNS = { fmp: { symbol: fmpSymbol, dividends: fmpDividends }, av: { symbol: avSymbol, dividends: avDividends } };
 
 /**
- * Dividenden eines Titels abrufen. `cached` (aus dem lokalen Speicher) liefert ein bereits gefundenes Kürzel,
- * damit dafür kein Abruf verbraucht wird. Ein von Hand eingetragenes Kürzel (`t.divSymbol`) hat Vorrang.
+ * Börsenkürzel im Format des Dienstes aus einem Basiskürzel (z. B. von onvista: „SAP“) ableiten.
+ * US-Werte: Kürzel ohne Zusatz. Sonst die Xetra-Notierung (für Anleger in Deutschland die übliche):
+ * Alpha Vantage „SAP.DEX“, Financial Modeling Prep „SAP.DE“.
+ */
+export function deriveSymbols(provider, base, isin = '') {
+  base = String(base || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!base || !/^[A-Z0-9.\-]{1,12}$/.test(base)) return [];
+  if (base.includes('.')) return [base];
+  const cc = String(isin || '').slice(0, 2).toUpperCase();
+  const xetra = provider === 'av' ? `${base}.DEX` : `${base}.DE`;
+  if (cc === 'US' || cc === 'CA') return [base, xetra];
+  if (cc === 'GB') return [provider === 'av' ? `${base}.LON` : `${base}.L`, xetra];
+  if (cc === 'CH') return [provider === 'av' ? `${base}.SWX` : `${base}.SW`, xetra];
+  return [xetra, base];
+}
+
+function cleanEvents(list) {
+  return list
+    .filter(e => /^\d{4}-\d{2}-\d{2}/.test(e.ex) && Number.isFinite(e.amount) && e.amount > 0)
+    .map(e => ({ ex: e.ex.slice(0, 10), pay: /^\d{4}-\d{2}-\d{2}/.test(e.pay) ? e.pay.slice(0, 10) : '', amount: e.amount }))
+    .sort((a, b) => b.ex.localeCompare(a.ex))
+    .slice(0, 24);
+}
+
+/**
+ * Dividenden eines Titels abrufen. Reihenfolge der Kürzel: von Hand eingetragen → bereits gefunden →
+ * aus dem Basiskürzel abgeleitet (`t.baseSymbol`, z. B. von onvista – kostet kein Kontingent) → Suche beim Dienst.
+ * Liefert ein Kürzel keine Daten, wird das nächste versucht (höchstens 4 Abrufe pro Titel, meist genügt einer).
+ * `noData: true` heißt: Der Dienst kennt zu diesem Titel keine Ausschüttungen (thesaurierend oder nicht abgedeckt).
  */
 export async function fetchDividends(t, { provider, key, cached, signal }) {
   const fns = PROVIDER_FNS[provider];
   if (!fns) throw new DivStopError('Unbekannter Dienst.');
   if (!key) throw new DivStopError('Kein API-Schlüssel hinterlegt.');
-  let symbol = t.divSymbol || (cached?.provider === provider ? cached.symbol : '');
-  let currency = cached?.provider === provider ? cached.currency || '' : '';
-  if (!symbol) {
-    const hit = await fns.symbol(t, key, signal);
-    if (!hit) return { provider, symbol: '', currency: '', events: [], fetchedAt: Date.now(), error: 'Titel beim Dienst nicht gefunden – Kürzel von Hand eintragen.' };
-    symbol = hit.symbol;
-    currency = hit.currency;
+  const same = cached?.provider === provider;
+  const tried = [];
+  let budget = 4;
+  const attempt = async (symbol, currency = '') => {
+    if (!symbol || tried.includes(symbol) || budget <= 0) return null;
+    tried.push(symbol);
+    budget--;
+    let raw;
+    try { raw = await fns.dividends(symbol, key, signal); }
+    catch (e) { if (e instanceof DivStopError || e.name === 'AbortError') throw e; return null; } // unbekanntes Kürzel → nächstes versuchen
+    const events = cleanEvents(raw);
+    return events.length ? { provider, symbol, currency: currency || currencyFromSymbol(symbol), events, fetchedAt: Date.now(), error: '' } : null;
+  };
+  if (t.divSymbol) {
+    return (await attempt(t.divSymbol)) || { provider, symbol: t.divSymbol, currency: currencyFromSymbol(t.divSymbol), events: [], fetchedAt: Date.now(), error: '', noData: true };
   }
-  if (!currency) currency = currencyFromSymbol(symbol);
-  const events = (await fns.dividends(symbol, key, signal))
-    .filter(e => /^\d{4}-\d{2}-\d{2}/.test(e.ex) && Number.isFinite(e.amount) && e.amount > 0)
-    .map(e => ({ ex: e.ex.slice(0, 10), pay: /^\d{4}-\d{2}-\d{2}/.test(e.pay) ? e.pay.slice(0, 10) : '', amount: e.amount }))
-    .sort((a, b) => b.ex.localeCompare(a.ex))
-    .slice(0, 24);
-  return { provider, symbol, currency, events, fetchedAt: Date.now(), error: '' };
+  let hit = same && cached.symbol && cached.events?.length ? await attempt(cached.symbol, cached.currency) : null;
+  for (const sym of deriveSymbols(provider, t.baseSymbol, t.isin)) {
+    if (hit || budget <= 2) break; // zwei Abrufe für Suche + Versuch übrig lassen
+    hit = await attempt(sym);
+  }
+  if (!hit && budget > 1) {
+    const found = await fns.symbol(t, key, signal);
+    budget--;
+    if (found) hit = await attempt(found.symbol, found.currency);
+  }
+  if (hit) return hit;
+  return { provider, symbol: tried[0] || '', currency: currencyFromSymbol(tried[0]), events: [], fetchedAt: Date.now(), error: '', noData: true,
+    tried };
 }
 
 export function currencyFromSymbol(symbol) {
@@ -189,6 +230,8 @@ export function summarizeDividends(events, now = Date.now()) {
 /** Muss neu abgerufen werden? (nie abgerufen, zu alt, anderer Dienst oder anderes Kürzel) */
 export function needsRefresh(cached, { provider, symbol }, now = Date.now()) {
   if (!cached || cached.provider !== provider) return true;
+  // Einträge aus v2.3.0 ohne Daten sofort neu versuchen (damals noch ohne Kürzel-Ableitung)
+  if ((cached.v || 1) < 2 && !cached.events?.length) return true;
   if (symbol && cached.symbol !== symbol) return true;
   if (cached.error && !cached.events?.length) return now - (cached.fetchedAt || 0) > 86400000;
   return now - (cached.fetchedAt || 0) > DIV_MAX_AGE_MS;
