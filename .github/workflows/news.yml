@@ -38,17 +38,6 @@ jobs:
           mkdir -p /tmp/out
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
-      - name: DivvyDiary-Probe (temporär)
-        if: github.event_name == 'workflow_dispatch'
-        run: >
-          node scripts/probe-cors.mjs
-          "https://api.divvydiary.com/symbols/DE0008404005"
-          "https://api.divvydiary.com/symbols/DE0008404005/dividends"
-          "https://api.divvydiary.com/symbols/IE00B3RBWM25"
-          "https://api.divvydiary.com/symbols/US9311421039"
-          "https://api.divvydiary.com/dividends?isin=DE0008404005"
-          "https://divvydiary.com/de/allianz-aktie-DE0008404005"
-
       - name: In Branch news-data veröffentlichen
         # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
         if: github.event_name != 'pull_request'
