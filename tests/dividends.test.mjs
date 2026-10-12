@@ -116,3 +116,39 @@ test('Ohne Daten beim Dienst: noData statt stillem Ausblenden', async () => {
   assert.equal(r.noData, true);
   assert.deepEqual(r.tried, ['EUNL.DEX', 'EUNL']);
 });
+
+test('Dividenden-CSV (Format des Claude-Prompts) einlesen – ohne Schätzungen', async () => {
+  const { parseDividendRows, manualEntry } = await import('../js/dividends.js');
+  const { parseCsv } = await import('../js/parser.js');
+  const { DIV_PROMPT_HEADER, buildDividendPrompt } = await import('../js/prompt.js');
+  const csv = [DIV_PROMPT_HEADER,
+    'DE0008404005;Allianz;2026-05-08;2026-05-12;17,10;EUR;gezahlt;https://www.allianz.com/de/investor_relations/aktie/dividende.html',
+    'IE00B3RBWM25;Vanguard FTSE All-World;2026-06-18;2026-07-01;0,9055;USD;gezahlt;https://www.vanguard.co.uk/x',
+    'IE00B3RBWM25;Vanguard FTSE All-World;2026-03-19;2026-04-01;0,4576;USD;gezahlt;https://www.vanguard.co.uk/x',
+    'IE00B4L5Y983;iShares Core MSCI World;;;;;keine;thesaurierend',
+    'DE0007164600;SAP;;;;EUR;vorgeschlagen;https://x'].join('\n');
+  const { entries, skipped } = parseDividendRows(parseCsv(csv));
+  assert.equal(entries.length, 4);
+  assert.equal(skipped.length, 1); // SAP ohne Ex-Tag/Betrag → nicht übernommen, nicht geschätzt
+  const alv = manualEntry(entries.filter(e => e.isin === 'DE0008404005'), NOW);
+  assert.equal(alv.manual, true);
+  assert.deepEqual(alv.events[0], { ex: '2026-05-08', pay: '2026-05-12', amount: 17.1, currency: 'EUR', status: 'gezahlt', source: 'https://www.allianz.com/de/investor_relations/aktie/dividende.html' });
+  const vg = manualEntry(entries.filter(e => e.isin === 'IE00B3RBWM25'), NOW);
+  assert.equal(vg.events.length, 2);
+  assert.equal(vg.events[0].currency, 'USD');
+  const ish = manualEntry(entries.filter(e => e.isin === 'IE00B4L5Y983'), NOW);
+  assert.equal(ish.noData, true);
+  assert.equal(ish.note, 'keine Ausschüttung');
+  // Eigene Daten werden vom Dienst nicht überschrieben
+  assert.equal(needsRefresh(alv, { provider: 'av' }, NOW + 30 * 86400000), false);
+  // Prompt enthält Titel, Kopfzeile und das Schätzverbot
+  const p = buildDividendPrompt([{ name: 'Allianz', isin: 'DE0008404005', type: 'Aktie' }]);
+  assert.ok(p.includes('DE0008404005') && p.includes(DIV_PROMPT_HEADER) && /keine Schätzungen/.test(p));
+});
+
+test('Datumsformate: ISO und deutsch', async () => {
+  const { parseDay } = await import('../js/dividends.js');
+  assert.equal(parseDay('2026-05-08'), '2026-05-08');
+  assert.equal(parseDay('8.5.2026'), '2026-05-08');
+  assert.equal(parseDay('Mai 2026'), '');
+});
