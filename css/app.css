@@ -215,7 +215,7 @@ details summary { cursor: pointer; }
 /* Tab-Leiste */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(5, 1fr);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--border);
@@ -305,3 +305,21 @@ body.hide-values #privacyBtn .eye-open { display: none; }
 body.hide-values #privacyBtn .eye-closed { display: block; }
 body.hide-values #privacyBtn { color: var(--accent, #0f766e); }
 body.hide-values input.secret:not(:focus) { filter: blur(6px); }
+
+/* Dividenden */
+.div-setup { margin: 8px 0; }
+.div-setup summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.div-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.div-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.div-item.pending { opacity: .75; }
+.div-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.div-head b { font-size: 1rem; }
+.div-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 4px; }
+.div-grid > div { display: flex; flex-direction: column; }
+.div-grid b { font-size: .95rem; }
+.div-grid .upcoming { color: var(--accent); }
+.div-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.badge { display: inline-block; font-size: .7rem; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+.tiny { font-size: .72rem; }
+.cand-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cand-list li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }

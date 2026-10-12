@@ -101,6 +101,49 @@
       <ul id="positionList" class="pos-list"></ul>
     </section>
 
+    <!-- DIVIDENDEN -->
+    <section id="view-dividends" class="view" data-view="dividends" hidden>
+      <div class="card">
+        <h2>Dividenden</h2>
+        <p class="muted small">Ausschüttende Aktien, ETFs und Fonds deines Depots ab einem Positionswert von
+          <strong id="divMinText">5.000 €</strong> – dazu Titel deiner Merkliste. Titel ohne Ausschüttung werden ausgeblendet.</p>
+        <details id="divSetup" class="div-setup">
+          <summary>Einstellungen &amp; API-Schlüssel</summary>
+          <form id="divForm" class="form" autocomplete="off">
+            <label>Datendienst
+              <select name="divProvider">
+                <option value="fmp">Financial Modeling Prep (250 Abrufe/Tag)</option>
+                <option value="av">Alpha Vantage (25 Abrufe/Tag)</option>
+              </select>
+            </label>
+            <label>Eigener API-Schlüssel
+              <input name="divApiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Schlüssel einfügen">
+            </label>
+            <p class="muted small" id="divKeyHint"></p>
+            <label>Nur Positionen ab Wert (€)
+              <input name="divMinValue" type="text" inputmode="decimal" placeholder="5000">
+            </label>
+            <p class="muted small">Der Schlüssel bleibt nur auf diesem Gerät (nicht in der Sicherungsdatei). An den Dienst gehen nur
+              ISIN, Name bzw. Börsenkürzel der Titel – keine Stückzahlen oder Werte. Abgerufene Daten gelten 7 Tage.</p>
+          </form>
+        </details>
+        <div class="btn-row">
+          <button id="divRefreshBtn" class="btn primary" type="button">Dividenden abrufen</button>
+        </div>
+        <p id="divStatus" class="muted small" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h3>Merkliste – Titel außerhalb des Depots</h3>
+        <div class="row-between">
+          <input id="divWatchInput" type="search" placeholder="Name, WKN oder ISIN" aria-label="Titel für die Merkliste suchen">
+          <button id="divWatchBtn" class="btn small" type="button">Suchen</button>
+        </div>
+        <div id="divWatchResult"></div>
+      </div>
+      <ul id="divList" class="div-list"></ul>
+      <p id="divHidden" class="muted small"></p>
+    </section>
+
     <!-- QUELLEN -->
     <section id="view-sources" class="view" data-view="sources" hidden>
       <div class="card">
@@ -213,6 +256,7 @@
   <nav class="tabbar" aria-label="Hauptnavigation">
     <button data-tab="news" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h13v14H6a2 2 0 0 1-2-2zM17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7M7 16h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>News</span></button>
     <button data-tab="depot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z M14 2.5V10h7.5A8 8 0 0 0 14 2.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Depot</span></button>
+    <button data-tab="dividends"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15 8.5c-.7-.9-1.8-1.5-3-1.5-2.2 0-4 2.2-4 5s1.8 5 4 5c1.2 0 2.3-.6 3-1.5M6.5 10.5h6M6.5 13.5h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Dividenden</span></button>
     <button data-tab="sources"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19a1 1 0 1 0 0-.01M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Quellen</span></button>
     <button data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Mehr</span></button>
   </nav>
