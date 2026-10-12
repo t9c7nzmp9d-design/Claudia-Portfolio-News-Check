@@ -14,10 +14,11 @@ for (const u of process.argv.slice(2)) {
         const p = path + '.' + k;
         if (RX.test(k) && !seen.has(p.replace(/\.\d+/g, '[]'))) {
           seen.add(p.replace(/\.\d+/g, '[]'));
-          console.log('  ', p, '=', JSON.stringify(v).slice(0, 500));
+          console.log('  ', p, '=', JSON.stringify(v).slice(0, 700));
         } else if (typeof v === 'object') walk(v, p, depth + 1);
       }
     };
     walk(j, '', 0);
+    if (!seen.size) console.log('  Inhalt:', t.slice(0, 600).replace(/\s+/g, ' '));
   } catch (e) { console.log('ERR', e.message, u); }
 }
