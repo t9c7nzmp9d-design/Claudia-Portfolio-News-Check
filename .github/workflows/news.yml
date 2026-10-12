@@ -39,7 +39,8 @@ jobs:
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
       - name: In Branch news-data veröffentlichen
-        if: github.ref == 'refs/heads/main'
+        # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
+        if: github.event_name != 'pull_request'
         env:
           TOKEN: ${{ github.token }}
         run: |

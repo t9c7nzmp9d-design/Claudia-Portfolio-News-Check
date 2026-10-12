@@ -139,19 +139,27 @@ export async function fetchNews({ positions, sources, settings, onProgress = () 
   if (!enabledSources.length) return { items: [], errors: ['Keine Nachrichtenquelle aktiv (siehe „Quellen“).'], poolInfo };
 
   onProgress(0, 2);
-  try {
-    const pool = await fetchPool(signal);
+  // Beides parallel: News-Sammlung (GitHub) UND direkt vom Gerät abrufbare Feeds.
+  // So kommen aktuelle Schlagzeilen auch dann, wenn die Sammlung veraltet oder nicht erreichbar ist.
+  const [poolRes, directRes] = await Promise.all([
+    fetchPool(signal).then(v => ({ ok: true, v }), e => ({ ok: false, e })),
+    Promise.allSettled(DIRECT_FEEDS.map(f => fetchFeed(f, signal)))
+  ]);
+  if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError');
+  const direct = directRes.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
+  raw.push(...direct);
+  if (poolRes.ok) {
+    const pool = poolRes.v;
     raw.push(...pool.items);
-    poolInfo = { generatedAt: pool.generatedAt, count: pool.items.length };
+    poolInfo = { generatedAt: pool.generatedAt, count: pool.items.length, direct: direct.length };
     if (pool.generatedAt && Date.now() - pool.generatedAt > 6 * 3600000) {
-      errors.push(`Die News-Sammlung ist ${Math.round((Date.now() - pool.generatedAt) / 3600000)} Std. alt – läuft die GitHub Action „News sammeln“?`);
+      errors.push(`Die News-Sammlung ist ${Math.round((Date.now() - pool.generatedAt) / 3600000)} Std. alt – aktuelle Schlagzeilen kommen nur aus den direkt abrufbaren Quellen.`);
     }
-  } catch (e) {
-    if (signal?.aborted) throw e;
-    errors.push(`${friendlyError(e, 'News-Sammlung')} – es werden nur die direkt erreichbaren Quellen gelesen.`);
-    const res = await Promise.allSettled(DIRECT_FEEDS.map(f => fetchFeed(f, signal)));
-    res.forEach(r => { if (r.status === 'fulfilled') raw.push(...r.value); });
+  } else {
+    poolInfo = { generatedAt: null, count: 0, direct: direct.length };
+    errors.push(`${friendlyError(poolRes.e, 'News-Sammlung')} – es werden nur die direkt erreichbaren Quellen gelesen.`);
   }
+  if (!direct.length && !poolRes.ok) errors.push('Keine Quelle erreichbar – besteht eine Internetverbindung?');
   onProgress(1, 2);
 
   // Eigene Quellen mit RSS-Feed (nur wenn der Feed den direkten Abruf erlaubt)
