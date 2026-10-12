@@ -13,7 +13,10 @@ export function defaultSettings() {
     timespanDays: 7,
     bucket: 'day',            // Zeitfenster für Sortierung
     displayMode: 'percent',   // 'percent' | 'value'
-    hideValues: false,        // Vorführmodus: Euro-Beträge (Gesamt- und Positionswerte) ausblenden
+    hideValues: false,
+    divProvider: 'fmp',       // Dividenden-Dienst: 'fmp' | 'av'
+    divApiKey: '',            // eigener API-Schlüssel (nur lokal, nicht in Sicherungen)
+    divMinValue: 5000,        // Dividenden nur für Positionen ab diesem Wert (€)        // Vorführmodus: Euro-Beträge (Gesamt- und Positionswerte) ausblenden
     notify: false,
     notifyMinWeight: 2,       // Benachrichtigung nur ab dieser Gewichtung (%)
     maxImport: 2000,          // höchstens so viele Positionen einlesen (die ersten der Tabelle)
@@ -33,6 +36,8 @@ export function defaultState() {
     sources: DEFAULT_SOURCES.map(s => ({ id: uid(), builtin: true, ...s })),
     settings: defaultSettings(),
     news: { items: [], fetchedAt: null, known: [], read: [], errors: [] },
+    dividendWatch: [],        // Merkliste: Titel außerhalb des Depots
+    dividends: {},            // abgerufene Dividendendaten je Titel (Zwischenspeicher)
     lastBackupAt: null
   };
 }
@@ -53,6 +58,8 @@ export function migrate(s) {
   out.settings = { ...d.settings, ...(s.settings || {}) };
   out.portfolio = { ...d.portfolio, ...(s.portfolio || {}) };
   out.news = { ...d.news, ...(s.news || {}) };
+  if (!Array.isArray(out.dividendWatch)) out.dividendWatch = [];
+  if (!out.dividends || typeof out.dividends !== 'object') out.dividends = {};
   if (!Array.isArray(out.sources) || !out.sources.length) out.sources = d.sources;
   // neue Standardquellen nachtragen (deaktiviert), ohne Nutzerauswahl zu überschreiben
   for (const def of DEFAULT_SOURCES) {
@@ -145,14 +152,18 @@ export function buildBackup(state) {
     createdAt: new Date().toISOString(),
     portfolio: state.portfolio,
     sources: state.sources,
-    settings: state.settings,
+    settings: { ...state.settings, divApiKey: '' },
+    dividendWatch: state.dividendWatch || [],
     news: { read: state.news.read }
   };
 }
 
 export function restoreBackup(state, data) {
   if (!data || data.app !== 'portfolio-news-check') throw new Error('Das ist keine Sicherungsdatei dieser App.');
-  const merged = migrate({ ...state, portfolio: data.portfolio, sources: data.sources, settings: data.settings, onboarded: true });
+  // Eigenen API-Schlüssel des Geräts behalten (steht nicht in der Sicherung)
+  const settings = { ...data.settings, divApiKey: state.settings?.divApiKey || data.settings?.divApiKey || '' };
+  const merged = migrate({ ...state, portfolio: data.portfolio, sources: data.sources, settings, onboarded: true,
+    dividendWatch: data.dividendWatch || state.dividendWatch || [] });
   merged.news.read = data.news?.read || [];
   return merged;
 }

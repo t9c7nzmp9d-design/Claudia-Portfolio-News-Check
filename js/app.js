@@ -7,9 +7,10 @@ import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } fro
 import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { buildScreenshotPrompt } from './prompt.js';
+import { DIV_PROVIDERS, DivStopError, fetchDividends, summarizeDividends, needsRefresh } from './dividends.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
@@ -117,6 +118,7 @@ function showTab(name) {
   $$('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if (name === 'depot') renderDepot();
   if (name === 'sources') renderSources();
+  if (name === 'dividends') renderDividends();
   if (name === 'more') renderSettings();
   window.scrollTo({ top: 0 });
 }
@@ -461,6 +463,7 @@ function renderAll() {
   renderNews();
   renderLookup();
   if (!$('#view-depot').hidden) renderDepot();
+  if (!$('#view-dividends').hidden) renderDividends();
 }
 
 // ---------------------------------------------------------------- Import
@@ -765,6 +768,199 @@ function exportPositions() {
     .map(p => [p.isin || p.symbol || '', p.wkn || '', p.name, p.type || '', num(p.value, 2), num(p.weight, 4)]);
   const csv = '\uFEFF' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n') + '\r\n';
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `depot_${todayStamp()}.csv`);
+}
+
+// ---------------------------------------------------------------- Dividenden
+
+const DIV_TYPES = new Set(['Aktie', 'ETF', 'Fonds']);
+const divKey = t => t.isin || t.wkn || 'n:' + norm(t.name);
+const fmtDay = d => (d ? d.split('-').reverse().join('.') : '–');
+const fmtDiv = (amount, cur) => `${fmtNumber(amount, amount < 1 ? 4 : 2).replace(/(,\d\d)0+$/, '$1')} ${cur || ''}`.trim();
+let divRunning = null;
+
+/** Titel für den Dividenden-Bereich: Depot (Aktie/ETF/Fonds ab Mindestwert) plus Merkliste. */
+function dividendTitles() {
+  const min = Number(state.settings.divMinValue ?? 5000) || 0;
+  const map = new Map();
+  for (const p of state.portfolio.positions) {
+    if (!DIV_TYPES.has(p.type) || !(Number(p.value) >= min)) continue;
+    map.set(divKey(p), { ...p, source: 'depot' });
+  }
+  for (const w of state.dividendWatch) {
+    const k = divKey(w);
+    if (!map.has(k)) map.set(k, { ...w, source: 'watch' });
+  }
+  return [...map.values()];
+}
+
+function renderDividends() {
+  const s = state.settings;
+  const f = $('#divForm');
+  f.divProvider.value = s.divProvider || 'fmp';
+  if (document.activeElement !== f.divApiKey) f.divApiKey.value = s.divApiKey || '';
+  if (document.activeElement !== f.divMinValue) f.divMinValue.value = String(s.divMinValue ?? 5000).replace('.', ',');
+  const prov = DIV_PROVIDERS[s.divProvider] || DIV_PROVIDERS.fmp;
+  $('#divKeyHint').innerHTML = `Kostenlosen Schlüssel holen: <a href="${prov.keyUrl}" target="_blank" rel="noopener noreferrer">${esc(prov.label)}</a> (${esc(prov.note)}).`;
+  if (!s.divApiKey) $('#divSetup').open = true;
+  $('#divMinText').textContent = fmtMoney(Number(s.divMinValue ?? 5000) || 0).replace(/,00\s/, ' ');
+
+  const titles = dividendTitles();
+  const rows = [];
+  let noPay = 0;
+  for (const t of titles) {
+    const c = state.dividends[divKey(t)];
+    const sum = c?.events ? summarizeDividends(c.events) : null;
+    if (c && !c.error && sum && !sum.pays) { noPay++; continue; }
+    rows.push({ t, c, sum });
+  }
+  // Angekündigte Ausschüttungen zuerst (nächster Ex-Tag), dann zuletzt ausgeschüttete, dann Rest
+  const sortKey = r => (r.sum?.next ? '0' + r.sum.next.ex : r.sum?.last ? '1' + (99999999 - Number(r.sum.last.ex.replace(/-/g, ''))) : '2' + r.t.name);
+  rows.sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+
+  $('#divList').innerHTML = rows.map(({ t, c, sum }) => {
+    const k = esc(divKey(t));
+    const meta = [t.type, t.isin || t.wkn, c?.symbol].filter(Boolean).join(' · ');
+    const badge = t.source === 'watch' ? '<span class="badge">Merkliste</span>' : '';
+    let body;
+    if (!c) body = `<p class="muted small">${s.divApiKey ? 'Noch nicht abgerufen – „Dividenden abrufen“ tippen.' : 'Bitte zuerst einen API-Schlüssel eintragen.'}</p>`;
+    else if (c.error && !c.events?.length) body = `<p class="warn-text small">${esc(c.error)}</p>`;
+    else {
+      const ev = sum.next || sum.last;
+      const qty = Number(t.quantity);
+      const expected = Number.isFinite(qty) && qty > 0 && c.currency === 'EUR' ? ` · ≈ ${esc(money(qty * ev.amount))} für deine Stücke` : '';
+      body = `<div class="div-grid">
+          <div><span class="muted tiny">${sum.next ? 'Nächste Dividende' : 'Letzte Dividende'}</span><b class="${sum.next ? 'upcoming' : ''}">${esc(fmtDiv(ev.amount, c.currency))}</b></div>
+          <div><span class="muted tiny">Ex-Tag</span><b class="${sum.next ? 'upcoming' : ''}">${esc(fmtDay(ev.ex))}</b></div>
+          <div><span class="muted tiny">Zahltag</span><b>${esc(fmtDay(ev.pay))}</b></div>
+        </div>
+        <p class="muted small">Letzte 12 Monate: ${esc(fmtDiv(sum.ttmSum, c.currency))} (${sum.ttmCount}×)${expected}${sum.next && sum.last ? ` · zuvor ${esc(fmtDiv(sum.last.amount, c.currency))} am ${esc(fmtDay(sum.last.ex))}` : ''}</p>
+        <p class="muted tiny">Stand ${esc(fmtDateTime(c.fetchedAt))} · ${esc(DIV_PROVIDERS[c.provider]?.label || '')}</p>`;
+    }
+    return `<li class="div-item ${c ? '' : 'pending'}">
+      <div class="div-head"><b>${esc(t.name)}</b>${badge}</div>
+      <span class="muted small">${esc(meta)}</span>
+      ${body}
+      <div class="div-actions">
+        <button class="btn small ghost" type="button" data-divsym="${k}">Kürzel${c?.symbol ? ' ändern' : ' eintragen'}</button>
+        ${t.source === 'watch' ? `<button class="btn small ghost" type="button" data-divdel="${k}">Von Merkliste entfernen</button>` : ''}
+      </div>
+    </li>`;
+  }).join('') || `<li class="muted empty">Keine Titel: Im Depot gibt es keine Aktie, keinen ETF und keinen Fonds ab ${esc(fmtMoney(Number(s.divMinValue) || 0))} – und die Merkliste ist leer.</li>`;
+  const smaller = state.portfolio.positions.filter(p => DIV_TYPES.has(p.type) && !(Number(p.value) >= (Number(s.divMinValue) || 0))).length;
+  $('#divHidden').textContent = [noPay ? `${noPay} Titel ohne Ausschüttung ausgeblendet.` : '', smaller ? `${smaller} kleinere Positionen nicht berücksichtigt.` : ''].filter(Boolean).join(' ');
+  if (!divRunning) {
+    const missing = titles.filter(t => needsRefresh(state.dividends[divKey(t)], { provider: s.divProvider, symbol: t.divSymbol })).length;
+    $('#divStatus').textContent = !s.divApiKey ? '' : missing ? `${missing} von ${titles.length} Titeln brauchen neue Daten.` : titles.length ? 'Alle Daten sind aktuell.' : '';
+  }
+}
+
+async function refreshDividends({ force = false } = {}) {
+  const s = state.settings;
+  if (!s.divApiKey) { $('#divSetup').open = true; $('#divForm').divApiKey.focus(); return toast('Bitte zuerst einen API-Schlüssel eintragen.'); }
+  if (divRunning) return;
+  const todo = dividendTitles().filter(t => force || needsRefresh(state.dividends[divKey(t)], { provider: s.divProvider, symbol: t.divSymbol }));
+  if (!todo.length) { renderDividends(); return toast('Alle Dividendendaten sind aktuell (gelten 7 Tage).'); }
+  divRunning = new AbortController();
+  const btn = $('#divRefreshBtn');
+  btn.disabled = true;
+  let done = 0, failed = 0, stopMsg = '';
+  try {
+    for (const t of todo) {
+      $('#divStatus').textContent = `Lade Dividenden … ${done + 1}/${todo.length}: ${t.name}`;
+      const k = divKey(t);
+      try {
+        state.dividends[k] = await fetchDividends(t, { provider: s.divProvider, key: s.divApiKey, cached: state.dividends[k], signal: divRunning.signal });
+      } catch (e) {
+        if (e instanceof DivStopError) { stopMsg = e.message; break; }
+        failed++;
+        state.dividends[k] = { provider: s.divProvider, symbol: t.divSymbol || state.dividends[k]?.symbol || '', currency: '', events: [], fetchedAt: Date.now(),
+          error: e.restricted ? 'Für diesen Titel liefert der kostenlose Zugang keine Daten.' : `Abruf fehlgeschlagen (${e.name === 'AbortError' ? 'keine Antwort' : e.message}).` };
+      }
+      done++;
+      save();
+      renderDividends();
+    }
+  } finally {
+    divRunning = null;
+    btn.disabled = false;
+    save(true);
+    renderDividends();
+    const rest = todo.length - done;
+    $('#divStatus').textContent = stopMsg ? `${stopMsg}${rest ? ` ${rest} Titel noch offen.` : ''}`
+      : `${done} Titel abgerufen${failed ? `, ${failed} ohne Daten` : ''}.`;
+  }
+}
+
+function setDivSymbol(key) {
+  const inDepot = state.portfolio.positions.find(p => divKey(p) === key);
+  const inWatch = state.dividendWatch.find(w => divKey(w) === key);
+  const t = inDepot || inWatch;
+  if (!t) return;
+  const cur = t.divSymbol || state.dividends[key]?.symbol || '';
+  const v = prompt(`Börsenkürzel für „${t.name}“ beim Datendienst (z. B. SAP.DE, ALV.DE, AAPL, VWRL.AS). Leer = automatisch suchen.`, cur);
+  if (v === null) return;
+  t.divSymbol = v.trim().toUpperCase();
+  delete state.dividends[key];
+  save(true);
+  renderDividends();
+  if (state.settings.divApiKey) refreshDividends();
+}
+
+async function searchDivWatch() {
+  const q = $('#divWatchInput').value.trim();
+  const out = $('#divWatchResult');
+  if (q.length < 2) { out.innerHTML = ''; return; }
+  out.innerHTML = '<p class="muted small">Suche …</p>';
+  const { candidates, errors, hint } = await lookupSecurity(q);
+  if (!candidates.length) { out.innerHTML = `<p class="muted small">${esc(hint || errors[0] || 'Nichts gefunden.')}</p>`; return; }
+  out.innerHTML = '<ul class="cand-list">' + candidates.map((c, i) => `<li><button class="btn small" type="button" data-divadd="${i}">+ ${esc(c.name)}</button>
+    <span class="muted small">${esc([c.type, c.isin || c.wkn].filter(Boolean).join(' · '))}</span></li>`).join('') + '</ul>';
+  out._cands = candidates;
+}
+
+function bindDividends() {
+  $('#divRefreshBtn').addEventListener('click', () => refreshDividends());
+  $('#divForm').addEventListener('submit', e => e.preventDefault());
+  $('#divForm').addEventListener('change', e => {
+    const f = e.currentTarget;
+    const s = state.settings;
+    const oldProvider = s.divProvider;
+    s.divProvider = f.divProvider.value;
+    s.divApiKey = f.divApiKey.value.trim();
+    const min = parseNumber(f.divMinValue.value, true);
+    if (min !== null && min >= 0) s.divMinValue = min;
+    save(true);
+    renderDividends();
+    if (e.target.name === 'divApiKey' && s.divApiKey) toast('API-Schlüssel gespeichert (nur auf diesem Gerät).');
+    if (oldProvider !== s.divProvider) toast(`Datendienst: ${DIV_PROVIDERS[s.divProvider].label}. Daten werden beim nächsten Abruf neu geholt.`);
+  });
+  $('#divWatchBtn').addEventListener('click', searchDivWatch);
+  $('#divWatchInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchDivWatch(); } });
+  $('#divWatchResult').addEventListener('click', e => {
+    const i = e.target.closest('[data-divadd]')?.dataset.divadd;
+    if (i === undefined) return;
+    const c = $('#divWatchResult')._cands?.[Number(i)];
+    if (!c) return;
+    if (state.dividendWatch.some(w => divKey(w) === divKey(c))) return toast('Steht schon auf der Merkliste.');
+    state.dividendWatch.push({ id: uid(), name: c.name, isin: c.isin || '', wkn: c.wkn || '', type: c.type || 'Aktie' });
+    save(true);
+    $('#divWatchInput').value = '';
+    $('#divWatchResult').innerHTML = '';
+    renderDividends();
+    toast(`„${c.name}“ zur Merkliste hinzugefügt.`);
+    if (state.settings.divApiKey) refreshDividends();
+  });
+  $('#divList').addEventListener('click', e => {
+    const sym = e.target.closest('[data-divsym]')?.dataset.divsym;
+    if (sym) return setDivSymbol(sym);
+    const del = e.target.closest('[data-divdel]')?.dataset.divdel;
+    if (del) {
+      state.dividendWatch = state.dividendWatch.filter(w => divKey(w) !== del);
+      delete state.dividends[del];
+      save(true);
+      renderDividends();
+    }
+  });
 }
 
 // ---------------------------------------------------------------- Positionen bearbeiten
@@ -1104,6 +1300,7 @@ function bindEvents() {
   $$('.tabbar button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
   $('#refreshBtn').addEventListener('click', () => refreshNews());
   $('#rankInfoBtn').addEventListener('click', () => $('#rankDlg').showModal());
+  bindDividends();
   $('#privacyBtn').addEventListener('click', () => {
     state.settings.hideValues = !valuesHidden();
     save(true);
