@@ -38,13 +38,6 @@ jobs:
           mkdir -p /tmp/out
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
-      - name: CORS-Probe (temporär)
-        if: github.event_name == 'workflow_dispatch'
-        run: >
-          node scripts/probe-cors.mjs
-          "https://api.onvista.de/api/v1/stocks/ISIN:DE0007164600/snapshot"
-          "https://api.onvista.de/api/v1/funds/ISIN:IE00B4L5Y983/snapshot"
-
       - name: In Branch news-data veröffentlichen
         # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
         if: github.event_name != 'pull_request'

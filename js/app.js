@@ -9,7 +9,7 @@ import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
 import { buildScreenshotPrompt } from './prompt.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.1.1';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';

@@ -22,7 +22,7 @@ anzeigen, sortiert nach **1. Aktualität** und **2. Gewichtung** der Position.
 | **Automatische Erkennung** | Kopfzeile auch unter Vorspann-Zeilen, Spaltenbedeutung (ISIN, WKN, Name, Wert, Gewicht, Stück, Kurs, Währung, Typ), gedrehte Tabellen (Felder in Zeilen), deutsches/englisches Zahlenformat, Gewicht als Bruch oder %, Summenzeilen werden ignoriert, mehrere Tabellenblätter → das passendste wird gewählt |
 | **Asset-Erkennung** | ISIN mit Prüfziffer, WKN (bei deutschen ISINs automatisch abgeleitet), Typ (Aktie, ETF, Fonds, ETC, Anleihe, Krypto, Rohstoff, Cash), Land; ISIN im Namen („Apple Inc. (US0378331005)“) |
 | **News-Suchbegriffe** | Firmenname ohne Rechtsform-Zusätze; bei ETFs der Index (z. B. „MSCI World“), bei Rohstoffen „Goldpreis OR Gold price“; pro Position editierbar |
-| **News** | News-Sammlung per GitHub Action (kein Proxy, kein Schlüssel); nur aktivierte Quellen, Position muss in Überschrift oder Anreißer vorkommen; doppelte Meldungen zusammengefasst; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
+| **News** | News-Sammlung per GitHub Action (kein Proxy, kein Schlüssel) plus direkt vom Gerät abrufbare Feeds (tagesschau, CNBC, MarketWatch, WSJ, onvista); nur aktivierte Quellen, Position muss in Überschrift oder Anreißer vorkommen; doppelte Meldungen zusammengefasst; Gruppierung nach Zeitfenster (Stunde/6 h/Tag/exakt), innerhalb nach Gewichtung |
 | **Nachschlagen** | Eingabefeld für WKN, ISIN oder Name → Höhe der Position, per Schieberegler in **%** oder **€** |
 | **Positionen** | Bearbeiten, hinzufügen, löschen; Gewichtung wird aus Werten neu berechnet |
 | **Online ergänzen** | Bei „+ Position“ genügt Name, ISIN *oder* WKN (auch ausländische, z. B. 865985 = Apple) – Name, ISIN, WKN, Ticker, Typ und Suchbegriff kommen von onvista (Rückfall: Wikidata); bei mehreren Treffern zur Auswahl |
@@ -95,7 +95,7 @@ Browser dürfen fremde Seiten nur abrufen, wenn diese es per CORS-Header erlaube
 | tagesschau.de, CNBC, MarketWatch, WSJ Markets, onvista | Handelsblatt, FAZ, WiWo, manager magazin, SZ, Spiegel, Zeit, n-tv, Standard, NZZ, FT, BBC, Economist, Nikkei Asia, CoinDesk, Reuters/AP/Bloomberg (über Google News) |
 | – | GDELT (HTTP 429, kein CORS), Google News, Bing News, finanzen.net |
 
-Ist die News-Sammlung einmal nicht erreichbar, liest die App automatisch die direkt erreichbaren Quellen.
+Die direkt erreichbaren Quellen liest die App bei jeder Aktualisierung zusätzlich selbst – so gibt es auch dann aktuelle Schlagzeilen, wenn die News-Sammlung veraltet oder nicht erreichbar ist.
 
 ## Veröffentlichen auf GitHub Pages
 
@@ -122,7 +122,7 @@ css/app.css
 js/app.js      Oberfläche, Onboarding, Import-Ablauf, Sicherung, Benachrichtigungen
 js/parser.js   Datei lesen, Kopfzeile/Spalten/Ausrichtung/Zahlenformat erkennen
 js/assets.js   ISIN/WKN-Prüfung, Typ- & Suchbegriff-Erkennung
-js/news.js     News-Sammlung laden (sonst direkte Feeds), Zuordnung, Zusammenfassen, Sortierung
+js/news.js     News-Sammlung und direkte Feeds laden, Zuordnung, Zusammenfassen, Sortierung
 js/lookup.js   Online-Suche für „+ Position“ (onvista, Rückfall Wikidata)
 scripts/collect-news.mjs  Sammelskript der GitHub Action
 news/          feeds.json (Quellen der Sammlung)

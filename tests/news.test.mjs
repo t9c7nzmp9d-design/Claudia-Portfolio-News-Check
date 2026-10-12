@@ -84,9 +84,9 @@ test('Lokale Suchliste: nur Positionen ab der eingestellten Gewichtung, nichts v
   const sources = [{ name: 'Handelsblatt', domain: 'handelsblatt.com', lang: 'de', enabled: true }];
   const res = await fetchNews({ positions, sources, settings: { languages: ['de'], timespanDays: 7, watchMinWeight: 2 } });
   assert.deepEqual(res.items.map(i => i.positionIds[0]), ['sap']);
-  // Es wird nur die allgemeine Sammlung abgerufen – ohne Suchbegriffe oder Depotdaten in der Adresse
-  assert.equal(urls.length, 1);
-  assert.doesNotMatch(urls[0], /SAP|Kleinwert/);
+  // Abgerufen werden nur allgemeine Quellen (Sammlung + feste Feeds) – ohne Suchbegriffe oder Depotdaten in der Adresse
+  assert.ok(urls.length >= 1);
+  for (const u of urls) assert.doesNotMatch(u, /SAP|Kleinwert/);
   const all = await fetchNews({ positions, sources, settings: { languages: ['de'], timespanDays: 7, watchMinWeight: 0 } });
   assert.equal(all.items.length, 2);
 });
