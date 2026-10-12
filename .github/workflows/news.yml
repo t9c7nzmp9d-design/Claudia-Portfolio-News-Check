@@ -38,18 +38,6 @@ jobs:
           mkdir -p /tmp/out
           node scripts/collect-news.mjs /tmp/out/news.json /tmp/prev.json
 
-      - name: Dividenden-Probe (temporär)
-        if: github.event_name == 'workflow_dispatch'
-        run: >
-          node scripts/probe-cors.mjs
-          "https://www.alphavantage.co/query?function=DIVIDENDS&symbol=IBM&apikey=demo"
-          "https://www.alphavantage.co/query?function=SYMBOL_SEARCH&keywords=SAP&apikey=demo"
-          "https://financialmodelingprep.com/stable/dividends?symbol=AAPL&apikey=demo"
-          "https://financialmodelingprep.com/api/v3/historical-price-full/stock_dividend/AAPL?apikey=demo"
-          "https://financialmodelingprep.com/stable/dividends-calendar?apikey=demo"
-          "https://query2.finance.yahoo.com/v8/finance/chart/VWRL.AS?events=div&range=2y&interval=1mo"
-          "https://query2.finance.yahoo.com/v8/finance/chart/ALV.DE?events=div&range=3y&interval=1mo"
-
       - name: In Branch news-data veröffentlichen
         # Läuft auf dem Standard-Branch des Repos (geplante Läufe) – egal, wie dieser heißt
         if: github.event_name != 'pull_request'
