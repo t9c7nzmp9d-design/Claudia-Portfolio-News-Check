@@ -40,3 +40,42 @@ ${PROMPT_HEADER}
 
 Zum Schluss kurz zusammenfassen: welche Fonds aufgelöst wurden (mit Quelle und Stand), was zusammengefasst oder nicht gefunden wurde, und die Kontrollsumme.`;
 }
+
+// ---------------------------------------------------------------- Dividenden (nur Hauptquellen, keine Schätzungen)
+
+export const DIV_PROMPT_FILE = 'dividenden.csv';
+export const DIV_PROMPT_HEADER = 'ISIN;Name;Ex-Tag;Zahltag;Betrag;Währung;Status;Quelle';
+
+/** @param {{name: string, isin?: string, wkn?: string, type?: string}[]} titles */
+export function buildDividendPrompt(titles) {
+  const list = titles.map(t => `- ${t.name}${t.isin ? ` – ISIN ${t.isin}` : ''}${t.wkn ? ` – WKN ${t.wkn}` : ''}${t.type ? ` (${t.type})` : ''}`).join('\n');
+  return `Recherchiere für die folgenden Wertpapiere die Dividenden bzw. Ausschüttungen und gib sie als CSV-Datei aus. Nutze die Recherche bzw. Websuche gründlich. Ich brauche genaue, offiziell bestätigte Daten – keine Schätzungen, Prognosen oder Analystenerwartungen.
+
+Wertpapiere:
+${list}
+
+Quellen (Pflicht):
+- Aktien: Investor-Relations-Seite des Unternehmens, Einladung bzw. Beschlüsse der Hauptversammlung oder offizielle Pressemitteilung.
+- ETFs und Fonds: Ausschüttungshistorie auf der Website des Fondsanbieters (z. B. Vanguard, iShares, Xtrackers, Amundi, DWS, Union Investment).
+- Andere Seiten (Finanzportale, Nachrichten) nur zum Gegenprüfen, nie als alleinige Quelle.
+
+Je Wertpapier gesucht:
+- alle Ausschüttungen der letzten 12 Monate (Status „gezahlt“) und
+- bereits beschlossene oder offiziell vorgeschlagene künftige Ausschüttungen (Status „beschlossen“ bzw. „vorgeschlagen“).
+
+Regeln:
+- Nichts schätzen oder aus früheren Mustern ableiten. Ist ein Wert nicht offiziell veröffentlicht, das Feld leer lassen.
+- Betrag je Aktie bzw. Anteil in der Originalwährung der Ausschüttung (z. B. EUR, USD) – nicht umrechnen.
+- Thesaurierende Fonds/ETFs und Titel ohne Ausschüttung: eine Zeile mit Status „keine“ und leerem Betrag.
+- Wird ein Titel nicht eindeutig gefunden, eine Zeile mit Status „unklar“ und kurzer Erklärung in der Spalte Quelle.
+
+CSV-Format (genau diese Kopfzeile, Semikolon als Trennzeichen, UTF-8):
+${DIV_PROMPT_HEADER}
+- Ex-Tag und Zahltag als JJJJ-MM-TT (z. B. 2026-05-08).
+- Betrag mit Komma als Dezimalzeichen, ohne Währungszeichen (z. B. 17,10).
+- Status: gezahlt, beschlossen, vorgeschlagen, keine oder unklar.
+- Quelle: vollständige Adresse (URL) der Hauptquelle.
+- Stelle die CSV als herunterladbare Datei „${DIV_PROMPT_FILE}“ bereit.
+
+Zum Schluss kurz zusammenfassen, was nicht gefunden wurde oder unsicher ist.`;
+}

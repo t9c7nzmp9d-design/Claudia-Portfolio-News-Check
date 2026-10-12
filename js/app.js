@@ -1,16 +1,16 @@
 // Hauptlogik der Oberfläche.
 
 import { $, $$, esc, uid, parseNumber, fmtMoney, fmtNumber, fmtPercent, fmtDateTime, timeAgo, norm, downloadBlob, todayStamp } from './util.js';
-import { importFile, parseSheets, recomputeWeights, FIELD_LABELS } from './parser.js';
+import { importFile, parseSheets, recomputeWeights, FIELD_LABELS, readTableFile } from './parser.js';
 import { recognize, suggestSearchTerm, isValidIsin, looksLikeWkn, wknFromIsin, splitTerms, excludedTerms, ASSET_TYPES } from './assets.js';
 import { fetchNews, rankNews, bucketLabel, defaultPoolUrl, collapseSimilar } from './news.js';
 import { lookupSecurity, fetchQuote } from './lookup.js';
 import { DEFAULT_SOURCES, normalizeDomain } from './sources.js';
-import { buildScreenshotPrompt } from './prompt.js';
-import { DIV_PROVIDERS, DivStopError, fetchDividends, summarizeDividends, needsRefresh } from './dividends.js';
+import { buildScreenshotPrompt, buildDividendPrompt } from './prompt.js';
+import { DIV_PROVIDERS, DivStopError, fetchDividends, summarizeDividends, needsRefresh, parseDividendRows, manualEntry, parseDay } from './dividends.js';
 import { loadState, saveState, flushSave, saveStatus, loadBackupCopy, requestPersistence, defaultState, buildBackup, restoreBackup, clearAll, idbGet, idbSet, idbDel } from './store.js';
 
-const APP_VERSION = '2.3.1';
+const APP_VERSION = '2.4.0';
 let newVersionShown = false;
 const TABLE_EXT = /\.(csv|txt|tsv|xlsx|xlsm|xls|ods|numbers)$/i;
 const BACKUP_NAME = 'depot-news-sicherung.json';
@@ -64,7 +64,7 @@ function showMessage(title, text) {
   return new Promise(resolve => {
     const dlg = document.createElement('dialog');
     dlg.className = 'dlg';
-    dlg.innerHTML = `<form method="dialog" class="dlg-body"><h2>${esc(title)}</h2><p>${esc(text)}</p>
+    dlg.innerHTML = `<form method="dialog" class="dlg-body"><h2>${esc(title)}</h2><p style="white-space:pre-line">${esc(text)}</p>
       <div class="btn-row"><button class="btn primary" value="ok">OK</button></div></form>`;
     document.body.appendChild(dlg);
     dlg.addEventListener('close', () => { dlg.remove(); resolve(); });
@@ -813,6 +813,7 @@ function renderDividends() {
   for (const t of titles) {
     const c = state.dividends[divKey(t)];
     const sum = c?.events ? summarizeDividends(c.events) : null;
+    if (c?.manual && c.note === 'keine Ausschüttung') { noPay++; continue; }
     if (c?.noData) { noData.push({ t, c, sum }); continue; }
     if (c && !c.error && sum && !sum.pays) { noPay++; continue; }
     rows.push({ t, c, sum });
@@ -827,27 +828,31 @@ function renderDividends() {
     const badge = t.source === 'watch' ? '<span class="badge">Merkliste</span>' : '';
     let body;
     if (!c) body = `<p class="muted small">${s.divApiKey ? 'Noch nicht abgerufen – „Dividenden abrufen“ tippen.' : 'Bitte zuerst einen API-Schlüssel eintragen.'}</p>`;
+    else if (c.manual && c.noData) body = `<p class="muted small">Laut eingelesener CSV: ${esc(c.note || 'keine Daten')}.</p>`;
     else if (c.noData) body = `<p class="muted small">Keine Ausschüttungen beim Dienst gefunden${c.tried?.length ? ` (versucht: ${esc(c.tried.join(', '))})` : c.symbol ? ` (Kürzel ${esc(c.symbol)})` : ''}.
       Schüttet der Titel aus, bitte das Börsenkürzel prüfen – z. B. ${s.divProvider === 'av' ? 'SAP.DEX, ALV.DEX oder AAPL' : 'SAP.DE, ALV.DE oder AAPL'}.</p>`;
     else if (c.error && !c.events?.length) body = `<p class="warn-text small">${esc(c.error)}</p>`;
     else {
       const ev = sum.next || sum.last;
+      const cur = ev.currency || c.currency;
       const qty = Number(t.quantity);
-      const expected = Number.isFinite(qty) && qty > 0 && c.currency === 'EUR' ? ` · ≈ ${esc(money(qty * ev.amount))} für deine Stücke` : '';
+      const expected = Number.isFinite(qty) && qty > 0 && cur === 'EUR' ? ` · ≈ ${esc(money(qty * ev.amount))} für deine Stücke` : '';
+      const src = /^https?:\/\//i.test(ev.source || '') ? ` · <a href="${esc(ev.source)}" target="_blank" rel="noopener noreferrer">Quelle</a>` : '';
       body = `<div class="div-grid">
-          <div><span class="muted tiny">${sum.next ? 'Nächste Dividende' : 'Letzte Dividende'}</span><b class="${sum.next ? 'upcoming' : ''}">${esc(fmtDiv(ev.amount, c.currency))}</b></div>
+          <div><span class="muted tiny">${sum.next ? 'Nächste Dividende' : 'Letzte Dividende'}</span><b class="${sum.next ? 'upcoming' : ''}">${esc(fmtDiv(ev.amount, cur))}</b></div>
           <div><span class="muted tiny">Ex-Tag</span><b class="${sum.next ? 'upcoming' : ''}">${esc(fmtDay(ev.ex))}</b></div>
           <div><span class="muted tiny">Zahltag</span><b>${esc(fmtDay(ev.pay))}</b></div>
         </div>
-        <p class="muted small">Letzte 12 Monate: ${esc(fmtDiv(sum.ttmSum, c.currency))} (${sum.ttmCount}×)${expected}${sum.next && sum.last ? ` · zuvor ${esc(fmtDiv(sum.last.amount, c.currency))} am ${esc(fmtDay(sum.last.ex))}` : ''}</p>
-        <p class="muted tiny">Stand ${esc(fmtDateTime(c.fetchedAt))} · ${esc(DIV_PROVIDERS[c.provider]?.label || '')}</p>`;
+        <p class="muted small">Letzte 12 Monate: ${esc(fmtDiv(sum.ttmSum, cur))} (${sum.ttmCount}×)${expected}${sum.next && sum.last ? ` · zuvor ${esc(fmtDiv(sum.last.amount, sum.last.currency || cur))} am ${esc(fmtDay(sum.last.ex))}` : ''}</p>
+        <p class="muted tiny">${ev.status ? `<span class="badge">${esc(ev.status)}</span> ` : ''}Stand ${esc(fmtDateTime(c.fetchedAt))} · ${esc(c.manual ? 'eigene Daten (CSV/von Hand)' : DIV_PROVIDERS[c.provider]?.label || '')}${src}</p>`;
     }
     return `<li class="div-item ${c ? '' : 'pending'}">
       <div class="div-head"><b>${esc(t.name)}</b>${badge}</div>
       <span class="muted small">${esc(meta)}</span>
       ${body}
       <div class="div-actions">
-        <button class="btn small ghost" type="button" data-divsym="${k}">Kürzel${c?.symbol ? ' ändern' : ' eintragen'}</button>
+        <button class="btn small ghost" type="button" data-divedit="${k}">Von Hand</button>
+        ${c?.manual ? '' : `<button class="btn small ghost" type="button" data-divsym="${k}">Kürzel${c?.symbol ? ' ändern' : ' eintragen'}</button>`}
         ${t.source === 'watch' ? `<button class="btn small ghost" type="button" data-divdel="${k}">Von Merkliste entfernen</button>`
           : `<button class="btn small ghost" type="button" data-divhide="${k}" title="Nur hier ausblenden – das Depot bleibt unverändert">Ausblenden</button>`}
       </div>
@@ -946,7 +951,103 @@ async function searchDivWatch() {
   out._cands = candidates;
 }
 
+/** Titel per Schlüssel finden (Depot oder Merkliste, auch ausgeblendete). */
+function divTitleByKey(key) {
+  return state.portfolio.positions.find(p => divKey(p) === key) || state.dividendWatch.find(w => divKey(w) === key) || null;
+}
+
+function updateDivPrompt() {
+  const all = $('#divPromptAll').checked;
+  const titles = dividendTitles().filter(t => {
+    if (all) return true;
+    const c = state.dividends[divKey(t)];
+    return !c || c.noData || (c.error && !c.events?.length);
+  });
+  $('#divPromptCount').textContent = titles.length ? `${titles.length} Titel im Prompt.` : 'Alle Titel haben bereits Daten – „Alle Titel aufnehmen“ wählen, um sie neu prüfen zu lassen.';
+  const text = titles.length ? buildDividendPrompt(titles) : '';
+  $('#divPromptText').value = text;
+  $('#divPromptOpen').href = 'https://claude.ai/new' + (text && text.length < 6000 ? '?q=' + encodeURIComponent(text) : '');
+}
+
+async function importDividendCsv(file) {
+  let rows;
+  try { rows = (await readTableFile(file))[0]?.rows || []; }
+  catch (e) { return showMessage('Datei nicht lesbar', e.message); }
+  const { entries, skipped } = parseDividendRows(rows);
+  // Zeilen den Titeln zuordnen: über ISIN, sonst über den Namen
+  const titles = [...state.portfolio.positions, ...state.dividendWatch];
+  const groups = new Map();
+  const unknown = [];
+  for (const e of entries) {
+    const t = (e.isin && titles.find(x => x.isin === e.isin)) || titles.find(x => e.name && norm(x.name) === norm(e.name));
+    if (!t) { unknown.push(e.name || e.isin); continue; }
+    const k = divKey(t);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  for (const [k, list] of groups) state.dividends[k] = manualEntry(list);
+  save(true);
+  renderDividends();
+  const lines = [`${groups.size} Titel mit Dividendendaten übernommen.`];
+  if (unknown.length) lines.push(`Nicht im Depot bzw. auf der Merkliste: ${[...new Set(unknown)].slice(0, 10).join(', ')}${unknown.length > 10 ? ' …' : ''}`);
+  if (skipped.length) lines.push(`Übersprungen: ${skipped.slice(0, 8).join('; ')}${skipped.length > 8 ? ' …' : ''}`);
+  if (groups.size && !unknown.length && !skipped.length) toast(lines[0]);
+  else showMessage('Dividenden-CSV eingelesen', lines.join('\n\n'));
+}
+
+let divEditKey = null;
+function openDivEdit(key) {
+  const t = divTitleByKey(key);
+  if (!t) return;
+  divEditKey = key;
+  const c = state.dividends[key];
+  const sum = c?.events?.length ? summarizeDividends(c.events) : null;
+  const ev = sum?.next || sum?.last || null;
+  const f = $('#divEditForm');
+  $('#divEditTitle').textContent = `Dividende: ${t.name}`;
+  f.amount.value = ev ? String(ev.amount).replace('.', ',') : '';
+  f.currency.value = ev?.currency || c?.currency || 'EUR';
+  f.ex.value = ev?.ex || '';
+  f.pay.value = ev?.pay || '';
+  f.status.value = ev?.status || 'gezahlt';
+  f.source.value = ev?.source || '';
+  $('#divEditReset').hidden = !c?.manual;
+  $('#divEditDlg').showModal();
+}
+
+function saveDivEdit() {
+  const f = $('#divEditForm');
+  const amount = parseNumber(f.amount.value, true);
+  const ex = parseDay(f.ex.value);
+  if (!(amount > 0) || !ex) return toast('Bitte Betrag und Ex-Tag eintragen.');
+  const c = state.dividends[divEditKey];
+  // bisherige Ausschüttungen behalten, gleicher Ex-Tag wird ersetzt
+  const prev = (c?.events || []).filter(e => e.ex !== ex).map(e => ({ ...e, currency: e.currency || c.currency || '' }));
+  const row = { ex, pay: parseDay(f.pay.value), amount, currency: f.currency.value.trim().toUpperCase() || 'EUR', status: f.status.value, source: f.source.value.trim() };
+  state.dividends[divEditKey] = manualEntry([...prev, row]);
+  save(true);
+  renderDividends();
+  toast('Dividende gespeichert.');
+}
+
 function bindDividends() {
+  $('#divPromptBtn').addEventListener('click', () => { $('#divPromptAll').checked = false; updateDivPrompt(); $('#divPromptDlg').showModal(); });
+  $('#divPromptAll').addEventListener('change', updateDivPrompt);
+  $('#divPromptCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#divPromptText').value); toast('Prompt kopiert – jetzt in Claude einfügen.'); }
+    catch { $('#divPromptText').select(); toast('Bitte den markierten Text kopieren.'); }
+  });
+  $('#divPromptOpen').addEventListener('click', () => { navigator.clipboard?.writeText($('#divPromptText').value).catch(() => {}); });
+  $('#divCsvBtn').addEventListener('click', () => { $('#divCsvInput').value = ''; $('#divCsvInput').click(); });
+  $('#divCsvInput').addEventListener('change', e => { const file = e.target.files?.[0]; if (file) importDividendCsv(file); });
+  $('#divEditDlg').addEventListener('close', () => { if ($('#divEditDlg').returnValue === 'save') saveDivEdit(); });
+  $('#divEditReset').addEventListener('click', () => {
+    if (!confirm('Eigene Dividendendaten für diesen Titel löschen? Danach wird wieder der Datendienst gefragt.')) return;
+    delete state.dividends[divEditKey];
+    $('#divEditDlg').close('cancel');
+    save(true);
+    renderDividends();
+  });
   $('#divRefreshBtn').addEventListener('click', () => refreshDividends());
   $('#divForm').addEventListener('submit', e => e.preventDefault());
   $('#divForm').addEventListener('change', e => {
@@ -985,6 +1086,8 @@ function bindDividends() {
     if (state.settings.divApiKey) refreshDividends();
   });
   $('#divList').addEventListener('click', e => {
+    const ed = e.target.closest('[data-divedit]')?.dataset.divedit;
+    if (ed) return openDivEdit(ed);
     const sym = e.target.closest('[data-divsym]')?.dataset.divsym;
     if (sym) return setDivSymbol(sym);
     const hide = e.target.closest('[data-divhide]')?.dataset.divhide;

@@ -129,7 +129,10 @@
         </details>
         <div class="btn-row">
           <button id="divRefreshBtn" class="btn primary" type="button">Dividenden abrufen</button>
+          <button id="divPromptBtn" class="btn" type="button">Prompt für fehlende Dividenden</button>
+          <button id="divCsvBtn" class="btn" type="button">Dividenden-CSV einlesen</button>
         </div>
+        <input id="divCsvInput" type="file" accept=".csv,.txt,.tsv,.xlsx,.xls,.numbers,text/csv,text/plain" hidden>
         <p id="divStatus" class="muted small" aria-live="polite"></p>
       </div>
       <div class="card">
@@ -382,6 +385,49 @@
         <button id="promptCopy" class="btn primary" type="button">Prompt kopieren</button>
         <a id="promptOpen" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude öffnen</a>
         <button class="btn ghost" value="cancel" formnovalidate>Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="divPromptDlg" class="dlg dlg-wide">
+    <form method="dialog" class="dlg-body">
+      <h2>Dividenden mit Claude recherchieren</h2>
+      <ol class="small">
+        <li>Prompt kopieren, in Claude einen neuen Chat öffnen, <strong>Recherche (Research)</strong> einschalten und den Prompt einfügen.</li>
+        <li>Die Datei <em>dividenden.csv</em> speichern und hier mit „Dividenden-CSV einlesen“ laden.</li>
+      </ol>
+      <p class="small">Claude soll nur offizielle Quellen nutzen (Investor Relations, Hauptversammlung, Fondsanbieter) und nichts schätzen –
+        jede Zeile kommt mit Status (gezahlt, beschlossen, vorgeschlagen) und Quellen-Link. Bitte Stichproben über die Links prüfen.</p>
+      <label class="check"><input id="divPromptAll" type="checkbox"> Alle Titel aufnehmen (nicht nur die ohne Daten)</label>
+      <p id="divPromptCount" class="muted small"></p>
+      <textarea id="divPromptText" class="prompt-text" rows="10" readonly></textarea>
+      <p class="muted small">Die App sendet dabei nichts. Der Prompt enthält nur Namen, ISIN und WKN – keine Stückzahlen oder Werte.</p>
+      <div class="btn-row">
+        <button id="divPromptCopy" class="btn primary" type="button">Prompt kopieren</button>
+        <a id="divPromptOpen" class="btn" href="https://claude.ai/new" target="_blank" rel="noopener noreferrer">Claude öffnen</a>
+        <button class="btn ghost" value="cancel" formnovalidate>Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="divEditDlg" class="dlg">
+    <form id="divEditForm" method="dialog" class="dlg-body form">
+      <h2 id="divEditTitle">Dividende eintragen</h2>
+      <p class="muted small">Bitte nur offiziell bestätigte Werte eintragen (z. B. von der Investor-Relations-Seite).</p>
+      <div class="grid2">
+        <label>Betrag je Aktie/Anteil <input name="amount" inputmode="decimal" required placeholder="17,10"></label>
+        <label>Währung <input name="currency" maxlength="4" autocapitalize="characters" placeholder="EUR"></label>
+        <label>Ex-Tag <input name="ex" type="date" required></label>
+        <label>Zahltag <input name="pay" type="date"></label>
+      </div>
+      <label>Status
+        <select name="status"><option value="gezahlt">gezahlt</option><option value="beschlossen">beschlossen</option><option value="vorgeschlagen">vorgeschlagen</option></select>
+      </label>
+      <label>Quelle (Link) <input name="source" type="url" inputmode="url" placeholder="https://…"></label>
+      <div class="btn-row">
+        <button class="btn primary" value="save">Speichern</button>
+        <button id="divEditReset" class="btn ghost" type="button">Eigene Daten löschen</button>
+        <button class="btn ghost" value="cancel" formnovalidate>Abbrechen</button>
       </div>
     </form>
   </dialog>

@@ -229,10 +229,85 @@ export function summarizeDividends(events, now = Date.now()) {
 
 /** Muss neu abgerufen werden? (nie abgerufen, zu alt, anderer Dienst oder anderes Kürzel) */
 export function needsRefresh(cached, { provider, symbol }, now = Date.now()) {
+  if (cached?.manual) return false; // von Hand bzw. per Claude-CSV eingetragen – nicht vom Dienst überschreiben
   if (!cached || cached.provider !== provider) return true;
   // Einträge aus v2.3.0 ohne Daten sofort neu versuchen (damals noch ohne Kürzel-Ableitung)
   if ((cached.v || 1) < 2 && !cached.events?.length) return true;
   if (symbol && cached.symbol !== symbol) return true;
   if (cached.error && !cached.events?.length) return now - (cached.fetchedAt || 0) > 86400000;
   return now - (cached.fetchedAt || 0) > DIV_MAX_AGE_MS;
+}
+
+// ---------------------------------------------------------------- Eigene Daten (CSV von Claude oder von Hand)
+
+export const DIV_STATUS = ['gezahlt', 'beschlossen', 'vorgeschlagen', 'keine', 'unklar'];
+
+/** Datum als JJJJ-MM-TT; akzeptiert auch TT.MM.JJJJ. Sonst ''. */
+export function parseDay(v) {
+  const s = String(v ?? '').trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+}
+
+function parseAmount(v) {
+  let s = String(v ?? '').trim().replace(/[^\d,.\-]/g, '');
+  if (!s) return NaN;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  return Number(s);
+}
+
+const HEAD = {
+  isin: /^isin$/, name: /^(name|titel|wertpapier|bezeichnung)$/, ex: /^(ex-?tag|ex-?datum|ex[ -]?date|ex[ -]?dividend)/,
+  pay: /^(zahltag|zahlung|zahldatum|pay(ment)?[ -]?date|valuta)/, amount: /^(betrag|dividende|ausschüttung|amount)/,
+  currency: /^(währung|waehrung|currency)$/, status: /^status$/, source: /^(quelle|source|url)$/
+};
+
+/**
+ * CSV-Zeilen (bereits zerlegt) einlesen. Liefert Einträge je Wertpapier; ungültige Zeilen werden mit Grund übersprungen.
+ * Es wird nichts ergänzt oder geschätzt: fehlende Werte bleiben leer.
+ */
+export function parseDividendRows(rows) {
+  const clean = rows.filter(r => r.some(c => String(c ?? '').trim()));
+  if (!clean.length) return { entries: [], skipped: ['Datei ist leer.'] };
+  const head = clean[0].map(c => String(c ?? '').trim().toLowerCase());
+  const col = {};
+  for (const [k, re] of Object.entries(HEAD)) { const i = head.findIndex(h => re.test(h)); if (i >= 0) col[k] = i; }
+  if (col.isin === undefined && col.name === undefined) return { entries: [], skipped: ['Spalte „ISIN“ oder „Name“ fehlt – ist das die Dividenden-CSV?'] };
+  const get = (r, k) => (col[k] === undefined ? '' : String(r[col[k]] ?? '').trim());
+  const entries = [];
+  const skipped = [];
+  clean.slice(1).forEach((r, i) => {
+    const status = get(r, 'status').toLowerCase();
+    const e = {
+      isin: get(r, 'isin').toUpperCase().replace(/\s/g, ''), name: get(r, 'name'),
+      ex: parseDay(get(r, 'ex')), pay: parseDay(get(r, 'pay')), amount: parseAmount(get(r, 'amount')),
+      currency: get(r, 'currency').toUpperCase(), status: DIV_STATUS.includes(status) ? status : (status ? 'unklar' : ''),
+      source: get(r, 'source')
+    };
+    if (!e.isin && !e.name) { skipped.push(`Zeile ${i + 2}: ohne ISIN und Name`); return; }
+    if (e.status !== 'keine' && e.status !== 'unklar' && !(e.ex && Number.isFinite(e.amount) && e.amount > 0)) {
+      skipped.push(`Zeile ${i + 2} (${e.name || e.isin}): Ex-Tag oder Betrag fehlt`);
+      return;
+    }
+    entries.push(e);
+  });
+  return { entries, skipped };
+}
+
+/** Eingelesene Zeilen eines Wertpapiers zu einem Zwischenspeicher-Eintrag zusammenfassen (ersetzt frühere eigene Daten). */
+export function manualEntry(rows, now = Date.now()) {
+  const events = rows.filter(r => r.ex && Number.isFinite(r.amount) && r.amount > 0)
+    .map(r => ({ ex: r.ex, pay: r.pay || '', amount: r.amount, currency: r.currency || '', status: r.status || '', source: r.source || '' }))
+    .sort((a, b) => b.ex.localeCompare(a.ex));
+  // gleiche Ex-Tage nur einmal (z. B. doppelte Zeilen)
+  const seen = new Set();
+  const unique = events.filter(e => (seen.has(e.ex + e.amount) ? false : seen.add(e.ex + e.amount)));
+  const info = rows.find(r => r.status === 'keine' || r.status === 'unklar');
+  return {
+    provider: 'manual', manual: true, symbol: '', currency: unique[0]?.currency || '', events: unique, fetchedAt: now, v: 2,
+    noData: !unique.length, note: info ? (info.status === 'keine' ? 'keine Ausschüttung' : `unklar${info.source ? ': ' + info.source : ''}`) : ''
+  };
 }
